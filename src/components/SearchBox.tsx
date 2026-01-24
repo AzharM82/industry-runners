@@ -24,7 +24,7 @@ export function SearchBox({ onSearch, loading }: SearchBoxProps) {
 
   return (
     <div className="flex flex-col items-center justify-center py-12">
-      <h2 className="text-2xl font-serif text-[#3D3D3D] mb-6">
+      <h2 className="text-2xl font-bold text-white mb-6">
         Search for a Stock
       </h2>
       <div className="flex items-center w-full max-w-xl">
@@ -36,14 +36,13 @@ export function SearchBox({ onSearch, loading }: SearchBoxProps) {
             onKeyDown={handleKeyDown}
             placeholder="Enter stock symbol (e.g., AAPL, MSFT, GOOGL)"
             disabled={loading}
-            className="w-full px-5 py-4 text-lg border-2 border-[#D4C9B5] rounded-l-lg
-                       bg-white text-[#3D3D3D] placeholder-[#6B6B6B]
-                       focus:outline-none focus:border-[#6B7B4C] focus:ring-2 focus:ring-[#6B7B4C]/20
-                       disabled:bg-gray-100 disabled:cursor-not-allowed
-                       font-sans"
+            className="w-full px-5 py-4 text-lg border-2 border-gray-700 rounded-l-lg
+                       bg-gray-800 text-white placeholder-gray-500
+                       focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20
+                       disabled:bg-gray-900 disabled:cursor-not-allowed"
           />
           <svg
-            className="absolute right-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[#6B6B6B]"
+            className="absolute right-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -59,10 +58,10 @@ export function SearchBox({ onSearch, loading }: SearchBoxProps) {
         <button
           onClick={handleSearch}
           disabled={loading || !query.trim()}
-          className="px-8 py-4 text-lg font-medium text-white bg-[#6B7B4C]
-                     rounded-r-lg hover:bg-[#5a6a3f] transition-colors
-                     disabled:bg-gray-400 disabled:cursor-not-allowed
-                     border-2 border-[#6B7B4C] disabled:border-gray-400"
+          className="px-8 py-4 text-lg font-medium text-white bg-blue-600
+                     rounded-r-lg hover:bg-blue-700 transition-colors
+                     disabled:bg-gray-700 disabled:cursor-not-allowed
+                     border-2 border-blue-600 disabled:border-gray-700"
         >
           {loading ? (
             <span className="flex items-center gap-2">
@@ -89,7 +88,7 @@ export function SearchBox({ onSearch, loading }: SearchBoxProps) {
           )}
         </button>
       </div>
-      <p className="mt-4 text-sm text-[#6B6B6B]">
+      <p className="mt-4 text-sm text-gray-500">
         Enter a stock symbol to view comprehensive analysis including financials, ratios, and dividends.
       </p>
     </div>

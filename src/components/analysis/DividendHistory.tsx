@@ -44,26 +44,26 @@ export function DividendHistory({ dividends, dividendYield }: DividendHistoryPro
     : 0;
 
   return (
-    <div className="bg-[#FFFDF8] border border-[#D4C9B5] rounded-lg p-6 shadow-sm">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-serif font-bold text-[#3D3D3D]">Dividend History</h2>
+    <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+        <h2 className="text-xl font-bold text-white">Dividend History</h2>
         {dividendYield !== null && (
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-6">
             <div className="text-right">
-              <div className="text-xs text-[#6B6B6B] uppercase">Annual Dividend</div>
-              <div className="text-lg font-semibold text-[#3D3D3D]">
+              <div className="text-xs text-gray-500 uppercase">Annual Dividend</div>
+              <div className="text-lg font-semibold text-white">
                 ${annualDividend.toFixed(2)}
               </div>
             </div>
             <div className="text-right">
-              <div className="text-xs text-[#6B6B6B] uppercase">Yield</div>
-              <div className="text-lg font-semibold text-[#5A8B5A]">
+              <div className="text-xs text-gray-500 uppercase">Yield</div>
+              <div className="text-lg font-semibold text-green-500">
                 {dividendYield.toFixed(2)}%
               </div>
             </div>
             <div className="text-right">
-              <div className="text-xs text-[#6B6B6B] uppercase">Frequency</div>
-              <div className="text-lg font-semibold text-[#3D3D3D]">
+              <div className="text-xs text-gray-500 uppercase">Frequency</div>
+              <div className="text-lg font-semibold text-white">
                 {getFrequencyLabel(frequency)}
               </div>
             </div>
@@ -74,21 +74,21 @@ export function DividendHistory({ dividends, dividendYield }: DividendHistoryPro
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[#D4C9B5]">
-              <th className="text-left py-2 pr-4 text-[#6B6B6B] font-medium">Ex-Dividend Date</th>
-              <th className="text-left py-2 px-4 text-[#6B6B6B] font-medium">Pay Date</th>
-              <th className="text-right py-2 pl-4 text-[#6B6B6B] font-medium">Amount</th>
+            <tr className="border-b border-gray-700">
+              <th className="text-left py-2 pr-4 text-gray-400 font-medium">Ex-Dividend Date</th>
+              <th className="text-left py-2 px-4 text-gray-400 font-medium">Pay Date</th>
+              <th className="text-right py-2 pl-4 text-gray-400 font-medium">Amount</th>
             </tr>
           </thead>
           <tbody>
             {recentDividends.map((div, idx) => (
               <tr
                 key={idx}
-                className="border-b border-[#F5F0E6] hover:bg-[#F5F0E6]/50"
+                className="border-b border-gray-700/50 hover:bg-gray-700/30"
               >
-                <td className="py-3 pr-4 text-[#3D3D3D]">{formatDate(div.exDate)}</td>
-                <td className="py-3 px-4 text-[#6B6B6B]">{formatDate(div.payDate)}</td>
-                <td className="py-3 pl-4 text-right font-medium text-[#5A8B5A]">
+                <td className="py-3 pr-4 text-gray-200">{formatDate(div.exDate)}</td>
+                <td className="py-3 px-4 text-gray-400">{formatDate(div.payDate)}</td>
+                <td className="py-3 pl-4 text-right font-medium text-green-500">
                   ${div.amount.toFixed(4)}
                 </td>
               </tr>
@@ -98,7 +98,7 @@ export function DividendHistory({ dividends, dividendYield }: DividendHistoryPro
       </div>
 
       {dividends.length > 8 && (
-        <p className="text-xs text-[#6B6B6B] mt-4">
+        <p className="text-xs text-gray-500 mt-4">
           Showing most recent 8 dividends of {dividends.length} total.
         </p>
       )}

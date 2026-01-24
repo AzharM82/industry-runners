@@ -333,7 +333,7 @@ function App() {
               onClick={() => setActiveTab('analysis')}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
                 activeTab === 'analysis'
-                  ? 'bg-[#F5F0E6] text-[#3D3D3D] border-t border-l border-r border-[#D4C9B5]'
+                  ? 'bg-gray-800 text-white border-t border-l border-r border-gray-700'
                   : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800/50'
               }`}
             >

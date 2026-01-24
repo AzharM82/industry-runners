@@ -56,9 +56,9 @@ function getCashFlowFields(): { key: keyof CashFlowStatement; label: string }[] 
 export function FinancialTable({ title, statements, type }: FinancialTableProps) {
   if (!statements || statements.length === 0) {
     return (
-      <div className="bg-[#FFFDF8] border border-[#D4C9B5] rounded-lg p-6 shadow-sm">
-        <h2 className="text-xl font-serif font-bold text-[#3D3D3D] mb-4">{title}</h2>
-        <p className="text-[#6B6B6B] text-sm">
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
+        <h2 className="text-xl font-bold text-white mb-4">{title}</h2>
+        <p className="text-gray-400 text-sm">
           {title} data is not available. This may require a premium Polygon subscription.
         </p>
       </div>
@@ -80,16 +80,16 @@ export function FinancialTable({ title, statements, type }: FinancialTableProps)
   const displayStatements = statements.slice(0, 4);
 
   return (
-    <div className="bg-[#FFFDF8] border border-[#D4C9B5] rounded-lg p-6 shadow-sm overflow-hidden">
-      <h2 className="text-xl font-serif font-bold text-[#3D3D3D] mb-4">{title}</h2>
+    <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 overflow-hidden">
+      <h2 className="text-xl font-bold text-white mb-4">{title}</h2>
 
       <div className="overflow-x-auto -mx-6 px-6">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[#D4C9B5]">
-              <th className="text-left py-2 pr-4 text-[#6B6B6B] font-medium">Metric</th>
+            <tr className="border-b border-gray-700">
+              <th className="text-left py-2 pr-4 text-gray-400 font-medium">Metric</th>
               {displayStatements.map((stmt, idx) => (
-                <th key={idx} className="text-right py-2 px-2 text-[#6B6B6B] font-medium whitespace-nowrap">
+                <th key={idx} className="text-right py-2 px-2 text-gray-400 font-medium whitespace-nowrap">
                   {stmt.period} {stmt.fiscalYear}
                 </th>
               ))}
@@ -97,8 +97,8 @@ export function FinancialTable({ title, statements, type }: FinancialTableProps)
           </thead>
           <tbody>
             {fields.map((field) => (
-              <tr key={field.key} className="border-b border-[#F5F0E6] hover:bg-[#F5F0E6]/50">
-                <td className="py-2 pr-4 text-[#3D3D3D] font-medium">{field.label}</td>
+              <tr key={field.key} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                <td className="py-2 pr-4 text-gray-300 font-medium">{field.label}</td>
                 {displayStatements.map((stmt, idx) => {
                   const value = (stmt as unknown as Record<string, number | string | undefined>)[field.key as string] as number | undefined;
                   const prevValue = idx < displayStatements.length - 1
@@ -110,7 +110,7 @@ export function FinancialTable({ title, statements, type }: FinancialTableProps)
                     : null;
 
                   return (
-                    <td key={idx} className="text-right py-2 px-2 text-[#3D3D3D]">
+                    <td key={idx} className="text-right py-2 px-2 text-gray-200">
                       <div className="flex items-center justify-end gap-1">
                         <span>
                           {field.key === 'eps' && value !== undefined
@@ -120,7 +120,7 @@ export function FinancialTable({ title, statements, type }: FinancialTableProps)
                         {trend !== null && (
                           <span
                             className={`text-xs ${
-                              trend > 0 ? 'text-[#5A8B5A]' : trend < 0 ? 'text-[#C45C4A]' : 'text-[#6B6B6B]'
+                              trend > 0 ? 'text-green-500' : trend < 0 ? 'text-red-500' : 'text-gray-500'
                             }`}
                           >
                             {trend > 0 ? '\u25B2' : trend < 0 ? '\u25BC' : ''}
@@ -136,7 +136,7 @@ export function FinancialTable({ title, statements, type }: FinancialTableProps)
         </table>
       </div>
 
-      <p className="text-xs text-[#6B6B6B] mt-4">
+      <p className="text-xs text-gray-500 mt-4">
         Quarterly data. Trend arrows compare to previous quarter.
       </p>
     </div>

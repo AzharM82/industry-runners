@@ -34,31 +34,31 @@ export function StockHeader({ analysis }: StockHeaderProps) {
   const isPositive = analysis.change >= 0;
 
   return (
-    <div className="bg-[#FFFDF8] border border-[#D4C9B5] rounded-lg p-6 shadow-sm">
+    <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
       {/* Top Row: Symbol, Name, Price, Change */}
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold text-[#3D3D3D]">{analysis.symbol}</h1>
-            <span className="text-sm px-2 py-1 bg-[#F5F0E6] text-[#6B6B6B] rounded">
+            <h1 className="text-3xl font-bold text-white">{analysis.symbol}</h1>
+            <span className="text-sm px-2 py-1 bg-gray-700 text-gray-300 rounded">
               {analysis.exchange}
             </span>
           </div>
-          <p className="text-lg text-[#6B6B6B] mt-1">{analysis.name}</p>
+          <p className="text-lg text-gray-400 mt-1">{analysis.name}</p>
         </div>
 
         <div className="text-right">
-          <div className="text-4xl font-bold text-[#3D3D3D]">
+          <div className="text-4xl font-bold text-white">
             ${formatNumber(analysis.last)}
           </div>
-          <div className={`text-xl font-medium ${isPositive ? 'text-[#5A8B5A]' : 'text-[#C45C4A]'}`}>
+          <div className={`text-xl font-medium ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
             {isPositive ? '+' : ''}{formatNumber(analysis.change)} ({isPositive ? '+' : ''}{formatNumber(analysis.changePercent)}%)
           </div>
         </div>
       </div>
 
       {/* Metrics Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
         <MetricCard label="Market Cap" value={formatLargeNumber(analysis.marketCap)} />
         <MetricCard label="Volume" value={formatVolume(analysis.volume)} />
         <MetricCard label="Avg Volume" value={formatVolume(analysis.avgVolume)} />
@@ -73,7 +73,7 @@ export function StockHeader({ analysis }: StockHeaderProps) {
         <MetricCard
           label="52W Low"
           value={`$${formatNumber(analysis.week52Low)}`}
-          highlight={analysis.last <= analysis.week52Low * 1.05}
+          highlightNegative={analysis.last <= analysis.week52Low * 1.05}
         />
         <MetricCard
           label="P/E Ratio"
@@ -97,13 +97,25 @@ interface MetricCardProps {
   label: string;
   value: string;
   highlight?: boolean;
+  highlightNegative?: boolean;
 }
 
-function MetricCard({ label, value, highlight = false }: MetricCardProps) {
+function MetricCard({ label, value, highlight = false, highlightNegative = false }: MetricCardProps) {
+  let bgClass = 'bg-gray-700/50';
+  let textClass = 'text-white';
+
+  if (highlight) {
+    bgClass = 'bg-green-500/20';
+    textClass = 'text-green-400';
+  } else if (highlightNegative) {
+    bgClass = 'bg-red-500/20';
+    textClass = 'text-red-400';
+  }
+
   return (
-    <div className={`p-3 rounded-lg ${highlight ? 'bg-[#E07B54]/10 border border-[#E07B54]/30' : 'bg-[#F5F0E6]'}`}>
-      <div className="text-xs text-[#6B6B6B] uppercase tracking-wide">{label}</div>
-      <div className={`text-lg font-semibold ${highlight ? 'text-[#E07B54]' : 'text-[#3D3D3D]'}`}>
+    <div className={`p-3 rounded-lg ${bgClass}`}>
+      <div className="text-xs text-gray-400 uppercase tracking-wide">{label}</div>
+      <div className={`text-lg font-semibold ${textClass}`}>
         {value}
       </div>
     </div>
