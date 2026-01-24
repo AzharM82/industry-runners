@@ -33,14 +33,14 @@ export function ETFCard({ etf, onStockClick }: ETFCardProps) {
           <span className="font-bold text-white text-sm">{etf.symbol}</span>
           <span className="text-xs text-gray-400 truncate">{etf.name}</span>
         </div>
-        {etf.etfQuote && (
-          <div className="flex items-center gap-2 text-right">
+        <div className="flex items-center gap-2 text-right">
+          {etf.etfQuote && (
             <span className="font-medium text-white text-sm">${formatPrice(etf.etfQuote.last)}</span>
-            <span className={`text-xs ${getColorClass(etf.etfQuote.changePercent)}`}>
-              {formatPercent(etf.etfQuote.changePercent)}
-            </span>
-          </div>
-        )}
+          )}
+          <span className={`text-xs ${getColorClass(etf.medianChangeFromOpen)}`}>
+            {formatPercent(etf.medianChangeFromOpen)}
+          </span>
+        </div>
       </div>
 
       {/* Stock Table */}

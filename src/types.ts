@@ -31,6 +31,7 @@ export interface ETF {
 export interface ETFWithData extends ETF {
   stocks: StockQuote[];
   etfQuote?: StockQuote;
+  medianChangeFromOpen: number;
 }
 
 export interface MarketIndex {

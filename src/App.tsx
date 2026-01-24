@@ -126,22 +126,26 @@ function App() {
     }
   }, []);
 
+  // Helper function to calculate median
+  const calculateMedian = (values: number[]): number => {
+    if (values.length === 0) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 === 0) {
+      return (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+    return sorted[mid];
+  };
+
   // Build swing trading ETF data from quotes
   const etfData = useMemo((): ETFWithData[] => {
     if (Object.keys(quotes).length === 0) return [];
 
-    // Sort ETFs by % change first (to determine priority for deduplication)
-    const sortedETFs = [...ETF_DATA].sort((a, b) => {
-      const aChange = quotes[a.symbol]?.changePercent ?? -999;
-      const bChange = quotes[b.symbol]?.changePercent ?? -999;
-      return bChange - aChange;
-    });
-
     // Track used stocks globally to prevent duplicates across ETFs
     const usedStocks = new Set<string>();
 
-    // Build ETF data with stocks and relative strength (with deduplication)
-    return sortedETFs.map(etf => {
+    // First pass: build ETF data with stocks
+    const etfDataWithMedian = ETF_DATA.map(etf => {
       const etfChange = quotes[etf.symbol]?.changeFromOpenPercent ?? 0;
 
       // Get up to 10 unique stocks for this ETF (not used in previous ETFs)
@@ -165,12 +169,22 @@ function App() {
 
       uniqueStocks.sort((a, b) => b.changeFromOpenPercent - a.changeFromOpenPercent);
 
+      // Calculate median of stocks' changeFromOpenPercent
+      const stockChanges = uniqueStocks.map(s => s.changeFromOpenPercent);
+      const medianChangeFromOpen = Math.round(calculateMedian(stockChanges) * 100) / 100;
+
       return {
         ...etf,
         etfQuote: quotes[etf.symbol],
-        stocks: uniqueStocks
+        stocks: uniqueStocks,
+        medianChangeFromOpen
       };
     });
+
+    // Sort ETFs by median changeFromOpen (highest first)
+    etfDataWithMedian.sort((a, b) => b.medianChangeFromOpen - a.medianChangeFromOpen);
+
+    return etfDataWithMedian;
   }, [quotes]);
 
   // Build day trading data from quotes + static ATR from Excel
