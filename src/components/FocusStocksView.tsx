@@ -57,19 +57,27 @@ export function FocusStocksView() {
   const bubbleData = useMemo((): BubbleData[] => {
     if (stocks.length === 0) return [];
 
-    // Find max relative volume for size normalization
-    const maxRelVol = Math.max(...stocks.map(s => s.relativeVolume || 0));
-
     return stocks
       .filter(stock => stock.relativeVolume > 0) // Only show stocks with valid relative volume
       .map(stock => ({
         symbol: stock.symbol,
         x: stock.relativeVolume,
         y: stock.changeFromOpenPercent,
-        z: maxRelVol > 0 ? (stock.relativeVolume / maxRelVol) * 100 : 10,
+        // Use relative volume directly for bubble size (will be mapped by ZAxis domain/range)
+        z: stock.relativeVolume,
         stock,
       }));
   }, [stocks]);
+
+  // Calculate Z domain for bubble sizing
+  const zDomain = useMemo(() => {
+    if (bubbleData.length === 0) return [0, 2];
+    const zValues = bubbleData.map(d => d.z);
+    const minZ = Math.min(...zValues);
+    const maxZ = Math.max(...zValues);
+    // Expand the domain slightly to ensure good size differentiation
+    return [Math.max(0, minZ * 0.5), maxZ * 1.1];
+  }, [bubbleData]);
 
   // Calculate domain bounds
   const { xDomain, yDomain } = useMemo(() => {
@@ -248,7 +256,7 @@ export function FocusStocksView() {
                   fill: '#9ca3af',
                 }}
               />
-              <ZAxis type="number" dataKey="z" range={[20, 400]} />
+              <ZAxis type="number" dataKey="z" domain={zDomain} range={[100, 1000]} />
               <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3' }} />
               <ReferenceLine y={0} stroke="#6b7280" strokeDasharray="5 5" />
               <ReferenceLine x={1} stroke="#6b7280" strokeDasharray="5 5" />
