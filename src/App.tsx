@@ -6,6 +6,7 @@ import { ETFCard } from './components/ETFCard';
 import { DayTradeCard } from './components/DayTradeCard';
 import { StockModal } from './components/StockModal';
 import { MarketIndices } from './components/MarketIndices';
+import { StockAnalysisView } from './components/StockAnalysisView';
 
 const API_BASE = '/api';
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -79,10 +80,10 @@ function getAllSymbols(): string[] {
   return Array.from(symbols);
 }
 
-type DashboardType = 'swing' | 'daytrade';
+type DashboardType = 'analysis' | 'swing' | 'daytrade';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<DashboardType>('swing');
+  const [activeTab, setActiveTab] = useState<DashboardType>('analysis');
   const [quotes, setQuotes] = useState<Record<string, StockQuote>>({});
   const [indices, setIndices] = useState<MarketIndex[]>([]);
   const [loading, setLoading] = useState(true);
@@ -305,7 +306,7 @@ function App() {
         <div className="max-w-[2400px] mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <h1 className="text-xl font-bold text-white">Industry Runners</h1>
+              <h1 className="text-xl font-bold text-white">Smart Stock Analysis</h1>
               <span className={`text-xs px-2 py-0.5 rounded ${marketOpen ? 'bg-green-900/50 text-green-400' : 'bg-gray-700 text-gray-400'}`}>
                 {marketOpen ? 'Market Open' : 'Market Closed'}
               </span>
@@ -328,6 +329,16 @@ function App() {
 
           {/* Dashboard Tabs */}
           <div className="flex gap-1 mt-3">
+            <button
+              onClick={() => setActiveTab('analysis')}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                activeTab === 'analysis'
+                  ? 'bg-[#F5F0E6] text-[#3D3D3D] border-t border-l border-r border-[#D4C9B5]'
+                  : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800/50'
+              }`}
+            >
+              Stock Analysis
+            </button>
             <button
               onClick={() => setActiveTab('swing')}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
@@ -369,7 +380,10 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'swing' ? (
+        {activeTab === 'analysis' ? (
+          // Stock Analysis Dashboard
+          <StockAnalysisView />
+        ) : activeTab === 'swing' ? (
           // Swing Trading Dashboard
           loading && etfData.length === 0 ? (
             <div className="flex items-center justify-center h-64">

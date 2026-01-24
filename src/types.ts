@@ -63,3 +63,87 @@ export interface DayTradeGroup {
   stocks: DayTradeStock[];
   avgChangePercent: number;
 }
+
+// Stock Analysis Types
+export interface StockAnalysis {
+  // Basic Info
+  symbol: string;
+  name: string;
+  description: string;
+  exchange: string;
+  sector: string;
+  industry: string;
+  employees: number;
+  website: string;
+
+  // Quote Data
+  last: number;
+  change: number;
+  changePercent: number;
+  open: number;
+  high: number;
+  low: number;
+  volume: number;
+  avgVolume: number;
+  marketCap: number;
+  week52High: number;
+  week52Low: number;
+
+  // Financials (quarterly data)
+  incomeStatements: IncomeStatement[];
+  balanceSheets: BalanceSheet[];
+  cashFlows: CashFlowStatement[];
+
+  // Ratios
+  peRatio: number | null;
+  pbRatio: number | null;
+  psRatio: number | null;
+  roe: number | null;
+  roa: number | null;
+  debtToEquity: number | null;
+
+  // Dividends
+  dividends: DividendInfo[];
+  dividendYield: number | null;
+}
+
+export interface IncomeStatement {
+  period: string;
+  fiscalYear: string;
+  revenue: number;
+  costOfRevenue: number;
+  grossProfit: number;
+  operatingExpense: number;
+  operatingIncome: number;
+  netIncome: number;
+  eps: number;
+  ebitda: number;
+}
+
+export interface BalanceSheet {
+  period: string;
+  fiscalYear: string;
+  cash: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  totalEquity: number;
+  currentAssets: number;
+  currentLiabilities: number;
+}
+
+export interface CashFlowStatement {
+  period: string;
+  fiscalYear: string;
+  netIncome: number;
+  operatingCashFlow: number;
+  investingCashFlow: number;
+  financingCashFlow: number;
+  freeCashFlow: number;
+}
+
+export interface DividendInfo {
+  exDate: string;
+  payDate: string;
+  amount: number;
+  frequency: number;
+}

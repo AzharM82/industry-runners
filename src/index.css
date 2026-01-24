@@ -4,6 +4,17 @@
   --color-positive: #22c55e;
   --color-negative: #ef4444;
   --color-neutral: #6b7280;
+
+  /* Stock Analysis Vintage Theme */
+  --analysis-bg: #F5F0E6;
+  --analysis-card: #FFFDF8;
+  --analysis-accent: #6B7B4C;
+  --analysis-orange: #E07B54;
+  --analysis-text: #3D3D3D;
+  --analysis-text-secondary: #6B6B6B;
+  --analysis-border: #D4C9B5;
+  --analysis-positive: #5A8B5A;
+  --analysis-negative: #C45C4A;
 }
 
 body {
