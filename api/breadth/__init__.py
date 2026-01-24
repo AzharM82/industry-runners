@@ -1,0 +1,349 @@
+import json
+import os
+import logging
+from datetime import datetime, timedelta
+import azure.functions as func
+import urllib.request
+import ssl
+
+POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
+POLYGON_BASE_URL = 'https://api.polygon.io'
+
+# Breadth universe - combined list from ETFs, day trade stocks, and focus stocks
+# This list should match the TypeScript getBreadthUniverse() function
+BREADTH_UNIVERSE = [
+    # From ETFs (etfs.ts holdings)
+    'SMH', 'NVDA', 'TSM', 'AVGO', 'MU', 'ASML', 'LRCX', 'INTC', 'KLAC', 'AMD', 'AMAT', 'MRVL', 'QCOM', 'TXN', 'ON', 'MPWR', 'ADI', 'NXPI', 'SWKS',
+    'FDN', 'META', 'AMZN', 'GOOGL', 'NFLX', 'CRM', 'ABNB', 'PYPL', 'SHOP', 'UBER', 'NOW', 'SPOT', 'PINS', 'SNAP', 'ZM', 'ETSY', 'GDDY', 'IAC', 'DBX',
+    'IGV', 'MSFT', 'ADBE', 'INTU', 'ORCL', 'SNPS', 'PANW', 'CDNS', 'WDAY', 'DDOG', 'TEAM', 'PLTR', 'HUBS', 'VEEV', 'TTD', 'ANSS', 'MANH',
+    'KWEB', 'TCEHY', 'BABA', 'PDD', 'MPNGY', 'NTES', 'KUAIY', 'JD', 'BIDU', 'TCOM', 'BEKE', 'BILI', 'LI', 'XPEV', 'NIO', 'ZTO', 'IQ', 'KC', 'BZUN',
+    'CIBR', 'FTNT', 'CRWD', 'CSCO', 'OKTA', 'ZS', 'CHKP', 'GEN', 'BB', 'CYBR', 'QLYS', 'TENB', 'RPD', 'VRNS', 'S', 'FFIV', 'AKAM',
+    'BLOK', 'BITB', 'IBIT', 'CME', 'CUBI', 'HUT', 'GLXY', 'HOOD', 'CIFR', 'CLSK', 'COIN', 'MARA', 'RIOT', 'MSTR', 'SQ', 'IBM', 'OSTK', 'SI', 'BTBT',
+    'ROBO', 'ISRG', 'TER', 'ROK', 'NOVT', 'SYM', 'HON', 'ABB', 'IRBT', 'KUKA', 'FANUY', 'CGNX', 'BRKS', 'PATH', 'AI', 'UPST', 'BILL', 'MTSI', 'NNDM',
+    'XLE', 'XOM', 'CVX', 'COP', 'SLB', 'WMB', 'EOG', 'PSX', 'VLO', 'KMI', 'MPC', 'HAL', 'OKE', 'DVN', 'FANG', 'BKR', 'TRGP', 'OXY', 'HES', 'CTRA',
+    'XOP', 'TPL', 'PBF', 'MRO', 'APA', 'MGY', 'MTDR', 'CHRD', 'PR', 'SM', 'NOG', 'VTLE', 'AR',
+    'TAN', 'FSLR', 'NXT', 'RUN', 'ENPH', 'HASI', 'SEDG', 'DQ', 'ARRY', 'NOVA', 'MAXN', 'CSIQ', 'SPWR', 'BEEM', 'SOL', 'JKS', 'SHLS', 'BE',
+    'XME', 'AA', 'CDE', 'HL', 'HCC', 'FCX', 'RGLD', 'CLF', 'NEM', 'CMC', 'X', 'STLD', 'NUE', 'RS', 'ATI', 'CENX', 'BTU', 'ARCH', 'AMR',
+    'XLB', 'LIN', 'APD', 'SHW', 'CTVA', 'ECL', 'DD', 'PPG', 'VMC', 'IFF', 'MLM', 'ALB', 'BALL', 'FMC', 'CF', 'MOS', 'CE', 'EMN',
+    'GDX', 'AEM', 'GOLD', 'AU', 'WPM', 'GFI', 'FNV', 'KGC', 'PAAS', 'AGI', 'HMY', 'IAG', 'BTG', 'EGO', 'SSRM', 'MAG', 'EXK', 'NGD',
+    'XLV', 'LLY', 'UNH', 'JNJ', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'AMGN', 'PFE', 'SYK', 'GILD', 'REGN', 'MDT', 'CVS', 'ELV', 'CI', 'BMY',
+    'XBI', 'RVMD', 'MRNA', 'FOLD', 'KRYS', 'ROIV', 'HALO', 'PRAX', 'EXEL', 'INCY', 'VRTX', 'BIIB', 'BMRN', 'ALNY', 'SRPT', 'ARGX', 'IONS', 'SGEN', 'UTHR',
+    'MSOS', 'TCNNF', 'CURLF', 'GTBIF', 'CRLBF', 'GLASF', 'VRNOF', 'TSNDF', 'JUSHF', 'VFF', 'CXXIF', 'CGC', 'TLRY', 'ACB', 'OGI', 'CRON', 'SNDL', 'GRWG',
+    'XLF', 'BRK-B', 'JPM', 'V', 'MA', 'BAC', 'GS', 'WFC', 'MS', 'C', 'AXP', 'SPGI', 'BLK', 'CB', 'PGR', 'SCHW', 'MMC', 'ICE', 'AON', 'TRV',
+    'XLY', 'TSLA', 'HD', 'MCD', 'NKE', 'LOW', 'BKNG', 'SBUX', 'TJX', 'ORLY', 'DHI', 'LEN', 'ROST', 'YUM', 'AZO', 'POOL', 'DECK', 'GRMN',
+    'XRT', 'CVNA', 'KMX', 'AN', 'M', 'JWN', 'KSS', 'GPS', 'GME', 'BBY', 'TSCO', 'W', 'DKS', 'ULTA', 'BBWI', 'BOOT', 'BKE', 'FIVE', 'CAL',
+    'XLP', 'PG', 'COST', 'PEP', 'KO', 'PM', 'WMT', 'MDLZ', 'MO', 'TGT', 'CL', 'KHC', 'GIS', 'SYY', 'HSY', 'K', 'CAG', 'TSN', 'HRL', 'CPB',
+    'PEJ', 'DIS', 'MAR', 'HLT', 'RCL', 'CCL', 'CMG', 'DASH', 'DRI', 'LVS', 'MGM', 'WYNN', 'SIX', 'SEAS', 'LYV', 'MTCH', 'EXPE',
+    'ITA', 'GE', 'RTX', 'BA', 'LHX', 'LMT', 'HWM', 'NOC', 'AXON', 'TDG', 'GD', 'HII', 'LDOS', 'SAIC', 'HEI', 'TXT', 'CW', 'SPR', 'ERJ',
+    'ITB', 'NVR', 'PHM', 'TOL', 'OC', 'BLD', 'MHO', 'TMHC', 'KBH', 'MDC', 'MTH', 'CCS', 'GRBK', 'MAS', 'DOOR',
+    'IYT', 'UNP', 'UPS', 'FDX', 'ODFL', 'CSX', 'NSC', 'R', 'LUV', 'DAL', 'UAL', 'JBHT', 'EXPD', 'XPO', 'KNX', 'SAIA', 'WERN', 'LSTR', 'SNDR', 'CHRW',
+    'IYZ', 'CMCSA', 'T', 'VZ', 'TMUS', 'AMT', 'CCI', 'EQIX', 'SBAC', 'CHTR', 'LUMN', 'DISH', 'USM', 'GSAT', 'IRDM', 'LBRDA', 'CABO', 'SATS',
+    # From daytrade.ts
+    'WULF', 'BITF', 'HIVE', 'CAN', 'GREE', 'BKKT',
+    'FSM', 'AG',
+    'MP', 'UUUU', 'LAC', 'SVM', 'ZEUS',
+    'RKLB', 'LUNR', 'KTOS', 'ASTS', 'RDW', 'GILT', 'MRCY', 'SPCE', 'MNTS', 'LLAP',
+    'ET', 'PAA', 'WES', 'NOG', 'VET', 'ERF', 'SD', 'REI',
+    'HUN', 'TROX', 'CC', 'KRO', 'MTX', 'CBT', 'GEVO', 'KALU', 'RYAM', 'IOSP',
+    'SOFI', 'LC', 'NU', 'KEY', 'RF', 'HBAN', 'ZION', 'CMA', 'FHN',
+    'OVV', 'CNX', 'RRC', 'CPE', 'TELL', 'RIG', 'PTEN',
+    'BGS', 'HAIN', 'THS', 'UNFI', 'SPTN', 'SMPL', 'FARM', 'JBSS', 'NOMD',
+    'BEAM', 'CRSP', 'NTLA', 'EDIT', 'ARWR', 'RCKT', 'QURE',
+    'AEO', 'EXPR', 'TLYS', 'ZUMZ', 'CATO', 'SBH', 'CTRN', 'SCVL', 'HIBB',
+    'LCID', 'RIVN', 'LAZR', 'GOEV', 'NKLA', 'WKHS', 'PRTS', 'NIU', 'FUV', 'SOLO',
+    'GOGO', 'VSAT', 'COMM', 'CASA', 'VIAV',
+    'ZIM', 'GXO', 'HTLD', 'MRTN', 'ARCB', 'ULH', 'CVLG',
+    'HIMS', 'TDOC', 'DOCS', 'GDRX', 'OSCR', 'CLOV', 'PGNY', 'PHR', 'ACCD', 'TALK',
+    'WOLF', 'QRVO', 'DIOD', 'CRUS', 'AMBA', 'AOSL', 'NVTS', 'SIMO',
+    'RDWR', 'OSPN', 'PING', 'IDCC', 'VRY',
+    'OUST', 'INVZ', 'AEVA', 'PRCT',
+    'DKNG', 'PENN', 'RRR', 'GDEN', 'BALY', 'AGS', 'EVRI', 'RSI', 'SRAD', 'GAN',
+    'TAL', 'GOTU', 'YMM', 'QFIN', 'FINV',
+    'BZH', 'HOV', 'SKY', 'DFH', 'TPH', 'LEGH', 'UHG',
+    'BMBL', 'YELP', 'ANGI', 'CARG', 'CARS', 'FVRR', 'UPWK',
+    'U', 'ZI', 'FROG', 'DOCN', 'ZEN', 'DOCU', 'ESTC', 'MDB',
+    # From focusstocks.ts (additional unique symbols)
+    'A', 'AAPL', 'ACN', 'ADP', 'ADSK', 'AFRM', 'AJG', 'ALAB', 'ALGN', 'ALL', 'ALLE',
+    'AME', 'AMKR', 'AMP', 'ANET', 'APLD', 'APO', 'APP', 'ARES', 'ARM', 'ASND',
+    'AVAV', 'AVB', 'AVY', 'BAH', 'BBIO', 'BDX', 'BLDR', 'BNTX', 'BR', 'BURL', 'BWXT', 'BX',
+    'CAH', 'CAT', 'CBOE', 'CBRE', 'CCJ', 'CDW', 'CEG', 'CIEN', 'CLH', 'CLS',
+    'CMI', 'COF', 'COHR', 'COKE', 'COR', 'CPAY', 'CRCL', 'CRDO', 'CRH', 'CRL', 'CRS', 'CRWV', 'CTAS',
+    'DE', 'DELL', 'DG', 'DGX', 'DLR', 'DLTR', 'DOV', 'DPZ',
+    'EFX', 'EL', 'EMR', 'ENTG', 'EPAM', 'ESS', 'ETN', 'EXE', 'EXR',
+    'FDS', 'FERG', 'FIGR', 'FIX', 'FLUT', 'FN', 'FTAI', 'FUTU',
+    'GEV', 'GH', 'GLW', 'GNRC', 'GOOG', 'GWRE',
+    'H', 'HCA', 'HUBB', 'HUM',
+    'ICLR', 'IDXX', 'IEX', 'ILMN', 'INSM', 'IONQ', 'IQV', 'IREN', 'IT', 'ITT', 'ITW',
+    'J', 'JAZZ', 'JBL', 'JKHY',
+    'KEYS', 'KKR', 'KRMN',
+    'LH', 'LITE', 'LNG', 'LPLA', 'LSCC', 'LULU',
+    'MCK', 'MCO', 'MELI', 'MKSI', 'MMM', 'MOH', 'MRSH', 'MSCI', 'MSI', 'MTB', 'MTZ',
+    'NBIS', 'NBIX', 'NET', 'NRG', 'NTAP', 'NTRA', 'NTRS', 'NVT',
+    'OKLO', 'ONTO',
+    'PEN', 'PH', 'PKG', 'PNC', 'PNFP', 'PODD', 'PSA', 'PSTG', 'PTC', 'PWR',
+    'Q', 'RACE', 'RBLX', 'RDDT', 'RJF', 'RL', 'RMBS', 'RMD', 'ROKU', 'ROP', 'RRX', 'RVTY',
+    'SAP', 'SCCO', 'SE', 'SF', 'SNDK', 'SNOW', 'SNX', 'SPG', 'SPXC', 'STE', 'STRL', 'STT', 'STX', 'STZ',
+    'TEL', 'TEM', 'THC', 'TKO', 'TLN', 'TPR', 'TSEM', 'TT', 'TTWO', 'TWLO', 'TXRH',
+    'UHS', 'URI',
+    'VRSK', 'VRSN', 'VRT', 'VST',
+    'WAB', 'WAT', 'WCC', 'WDC', 'WELL', 'WLK', 'WM', 'WMS', 'WSM', 'WST', 'WTW', 'WWD',
+    'ZBRA'
+]
+
+# Remove duplicates and sort
+BREADTH_UNIVERSE = sorted(list(set(BREADTH_UNIVERSE)))
+
+
+def polygon_request(endpoint: str) -> dict:
+    """Make a request to Polygon API"""
+    url = f"{POLYGON_BASE_URL}{endpoint}"
+    if '?' in url:
+        url += f"&apiKey={POLYGON_API_KEY}"
+    else:
+        url += f"?apiKey={POLYGON_API_KEY}"
+
+    try:
+        context = ssl.create_default_context()
+        req = urllib.request.Request(url, headers={'User-Agent': 'IndustryRunners/1.0'})
+        with urllib.request.urlopen(req, timeout=60, context=context) as response:
+            return json.loads(response.read().decode())
+    except Exception as e:
+        logging.error(f"Polygon API error for {endpoint}: {e}")
+        return {'_error': str(e)}
+
+
+def get_trading_date_n_days_ago(n_days: int) -> str:
+    """Get the trading date approximately n calendar days ago."""
+    # Add buffer for weekends and holidays
+    buffer_days = (n_days // 5) * 2 + 5  # Extra days for weekends/holidays
+    target_date = datetime.now() - timedelta(days=n_days + buffer_days)
+    return target_date.strftime('%Y-%m-%d')
+
+
+def get_grouped_daily_close(date: str) -> dict:
+    """
+    Get the closing prices for all stocks on a specific date using grouped daily endpoint.
+    Returns dict of symbol -> close price
+    """
+    data = polygon_request(f"/v2/aggs/grouped/locale/us/market/stocks/{date}?adjusted=true")
+
+    prices = {}
+    if '_error' not in data:
+        for result in data.get('results', []):
+            symbol = result.get('T', '')
+            close = result.get('c', 0)
+            if symbol and close > 0:
+                prices[symbol] = close
+
+    return prices
+
+
+def get_historical_closes(symbols: list, days_ago: int) -> dict:
+    """
+    Get historical closing prices for symbols from approximately N days ago.
+    Uses the grouped daily endpoint which is more efficient for many symbols.
+    """
+    # Calculate date approximately N trading days ago
+    # Assuming ~252 trading days per year, roughly 21 per month
+    calendar_days = int(days_ago * 1.45)  # Approximate calendar days from trading days
+    target_date = datetime.now() - timedelta(days=calendar_days)
+
+    # Try a few dates in case of holidays
+    for offset in range(5):
+        check_date = (target_date - timedelta(days=offset)).strftime('%Y-%m-%d')
+        prices = get_grouped_daily_close(check_date)
+        if prices:
+            return prices
+
+    return {}
+
+
+def fetch_current_snapshots(symbols: list) -> dict:
+    """
+    Fetch current snapshots for symbols in batches.
+    Returns dict of symbol -> snapshot data
+    """
+    snapshots = {}
+    batch_size = 100  # Polygon limit per request
+
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i:i + batch_size]
+        tickers_param = ','.join(batch)
+
+        data = polygon_request(f"/v2/snapshot/locale/us/markets/stocks/tickers?tickers={tickers_param}")
+
+        if '_error' not in data:
+            for ticker_data in data.get('tickers', []):
+                symbol = ticker_data.get('ticker', '')
+                if symbol:
+                    snapshots[symbol] = ticker_data
+
+    return snapshots
+
+
+def calculate_breadth_indicators(snapshots: dict, hist_21: dict, hist_34: dict, hist_63: dict) -> dict:
+    """
+    Calculate all breadth indicators from snapshot and historical data.
+    """
+    # Initialize counters
+    up_4_today = 0
+    down_4_today = 0
+    up_25_quarter = 0
+    down_25_quarter = 0
+    up_25_month = 0
+    down_25_month = 0
+    up_50_month = 0
+    down_50_month = 0
+    up_13_34days = 0
+    down_13_34days = 0
+
+    # SPY data
+    spy_value = 0
+    spy_change = 0
+    spy_change_pct = 0
+
+    for symbol, snap in snapshots.items():
+        # Get current price
+        day = snap.get('day', {})
+        last_trade = snap.get('lastTrade', {})
+        prev_day = snap.get('prevDay', {})
+
+        current_price = (
+            last_trade.get('p') or
+            day.get('c') or
+            snap.get('min', {}).get('c') or
+            0
+        )
+
+        if current_price <= 0:
+            continue
+
+        # Get previous close for daily change calculation
+        prev_close = prev_day.get('c', 0)
+
+        # Calculate daily change percent
+        change_pct = snap.get('todaysChangePerc', 0)
+        if change_pct == 0 and prev_close > 0:
+            change_pct = ((current_price - prev_close) / prev_close) * 100
+
+        # Handle SPY separately
+        if symbol == 'SPY':
+            spy_value = current_price
+            spy_change = snap.get('todaysChange', 0)
+            spy_change_pct = change_pct
+            continue
+
+        # Count daily movers (4%+)
+        if change_pct >= 4:
+            up_4_today += 1
+        elif change_pct <= -4:
+            down_4_today += 1
+
+        # Quarter calculation (63 trading days ago)
+        hist_price_63 = hist_63.get(symbol, 0)
+        if hist_price_63 > 0:
+            quarter_change = ((current_price - hist_price_63) / hist_price_63) * 100
+            if quarter_change >= 25:
+                up_25_quarter += 1
+            elif quarter_change <= -25:
+                down_25_quarter += 1
+
+        # Month calculation (21 trading days ago)
+        hist_price_21 = hist_21.get(symbol, 0)
+        if hist_price_21 > 0:
+            month_change = ((current_price - hist_price_21) / hist_price_21) * 100
+            if month_change >= 25:
+                up_25_month += 1
+            elif month_change <= -25:
+                down_25_month += 1
+            if month_change >= 50:
+                up_50_month += 1
+            elif month_change <= -50:
+                down_50_month += 1
+
+        # 34-day calculation
+        hist_price_34 = hist_34.get(symbol, 0)
+        if hist_price_34 > 0:
+            change_34 = ((current_price - hist_price_34) / hist_price_34) * 100
+            if change_34 >= 13:
+                up_13_34days += 1
+            elif change_34 <= -13:
+                down_13_34days += 1
+
+    return {
+        'primary': {
+            'up4PlusToday': up_4_today,
+            'down4PlusToday': down_4_today,
+            'ratio5Day': None,  # Phase 2 - requires historical daily counts
+            'ratio10Day': None,  # Phase 2 - requires historical daily counts
+            'up25PlusQuarter': up_25_quarter,
+            'down25PlusQuarter': down_25_quarter
+        },
+        'secondary': {
+            'up25PlusMonth': up_25_month,
+            'down25PlusMonth': down_25_month,
+            'up50PlusMonth': up_50_month,
+            'down50PlusMonth': down_50_month,
+            'up13Plus34Days': up_13_34days,
+            'down13Plus34Days': down_13_34days
+        },
+        'market': {
+            'spyValue': round(spy_value, 2),
+            'spyChange': round(spy_change, 2),
+            'spyChangePercent': round(spy_change_pct, 2)
+        }
+    }
+
+
+def main(req: func.HttpRequest) -> func.HttpResponse:
+    try:
+        if not POLYGON_API_KEY:
+            return func.HttpResponse(
+                json.dumps({'error': 'Polygon API key not configured'}),
+                status_code=500,
+                mimetype="application/json"
+            )
+
+        # Add SPY to universe for market data
+        universe = BREADTH_UNIVERSE + ['SPY']
+
+        logging.info(f"Fetching breadth data for {len(universe)} symbols")
+
+        # Fetch current snapshots for all symbols
+        snapshots = fetch_current_snapshots(universe)
+
+        logging.info(f"Got {len(snapshots)} snapshots")
+
+        # Fetch historical data for period calculations
+        # 21 trading days = ~1 month
+        # 34 trading days = ~1.5 months
+        # 63 trading days = ~1 quarter
+        hist_21 = get_historical_closes(BREADTH_UNIVERSE, 21)
+        hist_34 = get_historical_closes(BREADTH_UNIVERSE, 34)
+        hist_63 = get_historical_closes(BREADTH_UNIVERSE, 63)
+
+        logging.info(f"Got historical data: 21d={len(hist_21)}, 34d={len(hist_34)}, 63d={len(hist_63)}")
+
+        # Calculate breadth indicators
+        indicators = calculate_breadth_indicators(snapshots, hist_21, hist_34, hist_63)
+
+        # Build response
+        response = {
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'timestamp': int(datetime.now().timestamp() * 1000),
+            'universeCount': len(BREADTH_UNIVERSE),
+            **indicators
+        }
+
+        return func.HttpResponse(
+            json.dumps(response),
+            mimetype="application/json"
+        )
+
+    except Exception as e:
+        logging.error(f"Error in breadth endpoint: {e}")
+        return func.HttpResponse(
+            json.dumps({'error': str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )

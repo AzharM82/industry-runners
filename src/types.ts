@@ -164,3 +164,35 @@ export interface FocusStock {
   changePercent: number;
   previousClose: number;
 }
+
+// Breadth Indicators Types
+export interface BreadthData {
+  date: string;
+  timestamp: number;
+  universeCount: number;
+  primary: PrimaryBreadthIndicators;
+  secondary: SecondaryBreadthIndicators;
+  market: {
+    spyValue: number;
+    spyChange: number;
+    spyChangePercent: number;
+  };
+}
+
+export interface PrimaryBreadthIndicators {
+  up4PlusToday: number;
+  down4PlusToday: number;
+  ratio5Day: number | null;
+  ratio10Day: number | null;
+  up25PlusQuarter: number;
+  down25PlusQuarter: number;
+}
+
+export interface SecondaryBreadthIndicators {
+  up25PlusMonth: number;
+  down25PlusMonth: number;
+  up50PlusMonth: number;
+  down50PlusMonth: number;
+  up13Plus34Days: number;
+  down13Plus34Days: number;
+}
