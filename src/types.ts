@@ -177,6 +177,7 @@ export interface BreadthData {
     spyChange: number;
     spyChangePercent: number;
   };
+  t2108: number | null;
 }
 
 export interface PrimaryBreadthIndicators {

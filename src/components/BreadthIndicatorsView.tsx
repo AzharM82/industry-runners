@@ -126,6 +126,16 @@ export function BreadthIndicatorsView() {
                   </span>
                 </span>
               )}
+              {breadthData?.t2108 != null && (
+                <span className="text-gray-400">
+                  T2108: <span className={`font-medium ${
+                    breadthData.t2108 > 70 ? 'text-red-400' :
+                    breadthData.t2108 < 30 ? 'text-green-400' :
+                    'text-yellow-400'
+                  }`}>{breadthData.t2108}%</span>
+                  <span className="text-gray-500 text-xs ml-1">(% &gt; 40D MA)</span>
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -188,12 +198,28 @@ export function BreadthIndicatorsView() {
                   </div>
                 </td>
                 <td className="px-4 py-4">
-                  <div className="bg-gray-700 text-gray-500 px-3 py-2 rounded-lg text-center font-bold text-lg">
+                  <div className={`px-3 py-2 rounded-lg text-center font-bold text-lg ${
+                    breadthData?.primary.ratio5Day != null
+                      ? breadthData.primary.ratio5Day > 1
+                        ? 'bg-green-500/20 text-green-400'
+                        : breadthData.primary.ratio5Day < 1
+                          ? 'bg-red-500/20 text-red-400'
+                          : 'bg-yellow-500/20 text-yellow-400'
+                      : 'bg-gray-700 text-gray-500'
+                  }`}>
                     {breadthData?.primary.ratio5Day ?? '--'}
                   </div>
                 </td>
                 <td className="px-4 py-4">
-                  <div className="bg-gray-700 text-gray-500 px-3 py-2 rounded-lg text-center font-bold text-lg">
+                  <div className={`px-3 py-2 rounded-lg text-center font-bold text-lg ${
+                    breadthData?.primary.ratio10Day != null
+                      ? breadthData.primary.ratio10Day > 1
+                        ? 'bg-green-500/20 text-green-400'
+                        : breadthData.primary.ratio10Day < 1
+                          ? 'bg-red-500/20 text-red-400'
+                          : 'bg-yellow-500/20 text-yellow-400'
+                      : 'bg-gray-700 text-gray-500'
+                  }`}>
                     {breadthData?.primary.ratio10Day ?? '--'}
                   </div>
                 </td>
@@ -270,11 +296,12 @@ export function BreadthIndicatorsView() {
       <div className="bg-gray-800/50 rounded-lg p-4">
         <h4 className="text-sm font-medium text-gray-400 mb-2">About Breadth Indicators</h4>
         <ul className="text-xs text-gray-500 space-y-1">
-          <li><span className="text-green-400">Green cells</span> = Bullish signal (stocks up by threshold)</li>
-          <li><span className="text-red-400">Red cells</span> = Bearish signal (stocks down by threshold)</li>
-          <li><span className="text-gray-400">Gray cells</span> = Data not yet available (Phase 2 features)</li>
-          <li>Quarter = 63 trading days, Month = 21 trading days</li>
-          <li>5D/10D Ratios require historical daily data storage (coming in Phase 2)</li>
+          <li><span className="text-green-400">Green cells</span> = Bullish signal (stocks up by threshold, ratio &gt; 1)</li>
+          <li><span className="text-red-400">Red cells</span> = Bearish signal (stocks down by threshold, ratio &lt; 1)</li>
+          <li><span className="text-yellow-400">Yellow cells</span> = Neutral (ratio = 1)</li>
+          <li>Quarter = 63 trading days, Month = 21 trading days, 34D = 34 trading days</li>
+          <li>5D/10D Ratios = Rolling sum of (up 4%+) / (down 4%+) over past 5/10 days</li>
+          <li>T2108 = % of stocks above their 40-day moving average (<span className="text-green-400">&lt;30%</span> oversold, <span className="text-red-400">&gt;70%</span> overbought)</li>
         </ul>
       </div>
     </div>

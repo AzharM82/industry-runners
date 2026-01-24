@@ -120,22 +120,36 @@ def get_trading_date_n_days_ago(n_days: int) -> str:
     return target_date.strftime('%Y-%m-%d')
 
 
+def get_grouped_daily(date: str) -> dict:
+    """
+    Get the daily data for all stocks on a specific date using grouped daily endpoint.
+    Returns dict of symbol -> {open, close, high, low, volume}
+    """
+    data = polygon_request(f"/v2/aggs/grouped/locale/us/market/stocks/{date}?adjusted=true")
+
+    results = {}
+    if '_error' not in data:
+        for result in data.get('results', []):
+            symbol = result.get('T', '')
+            if symbol:
+                results[symbol] = {
+                    'open': result.get('o', 0),
+                    'close': result.get('c', 0),
+                    'high': result.get('h', 0),
+                    'low': result.get('l', 0),
+                    'volume': result.get('v', 0)
+                }
+
+    return results
+
+
 def get_grouped_daily_close(date: str) -> dict:
     """
     Get the closing prices for all stocks on a specific date using grouped daily endpoint.
     Returns dict of symbol -> close price
     """
-    data = polygon_request(f"/v2/aggs/grouped/locale/us/market/stocks/{date}?adjusted=true")
-
-    prices = {}
-    if '_error' not in data:
-        for result in data.get('results', []):
-            symbol = result.get('T', '')
-            close = result.get('c', 0)
-            if symbol and close > 0:
-                prices[symbol] = close
-
-    return prices
+    daily_data = get_grouped_daily(date)
+    return {symbol: data['close'] for symbol, data in daily_data.items() if data['close'] > 0}
 
 
 def get_historical_closes(symbols: list, days_ago: int) -> dict:
@@ -156,6 +170,158 @@ def get_historical_closes(symbols: list, days_ago: int) -> dict:
             return prices
 
     return {}
+
+
+def get_trading_dates(num_days: int) -> list:
+    """
+    Get a list of the last N trading dates (excluding weekends).
+    Returns dates in descending order (most recent first).
+    """
+    dates = []
+    current = datetime.now()
+
+    while len(dates) < num_days:
+        current = current - timedelta(days=1)
+        # Skip weekends (5=Saturday, 6=Sunday)
+        if current.weekday() < 5:
+            dates.append(current.strftime('%Y-%m-%d'))
+
+    return dates
+
+
+def calculate_daily_movers(daily_data: dict, prev_daily_data: dict, universe: list) -> tuple:
+    """
+    Calculate up 4%+ and down 4%+ counts for a single day.
+    Returns (up_count, down_count)
+    """
+    up_count = 0
+    down_count = 0
+
+    for symbol in universe:
+        if symbol not in daily_data or symbol not in prev_daily_data:
+            continue
+
+        current_close = daily_data[symbol].get('close', 0) if isinstance(daily_data[symbol], dict) else daily_data[symbol]
+        prev_close = prev_daily_data[symbol].get('close', 0) if isinstance(prev_daily_data[symbol], dict) else prev_daily_data[symbol]
+
+        if current_close > 0 and prev_close > 0:
+            change_pct = ((current_close - prev_close) / prev_close) * 100
+            if change_pct >= 4:
+                up_count += 1
+            elif change_pct <= -4:
+                down_count += 1
+
+    return up_count, down_count
+
+
+def calculate_rolling_ratios(universe: list) -> tuple:
+    """
+    Calculate 5-day and 10-day rolling up/down ratios.
+    Returns (ratio_5day, ratio_10day)
+    """
+    # Get the last 12 trading dates (need 11 for 10 days of changes + 1 previous)
+    dates = get_trading_dates(12)
+
+    # Fetch daily data for each date
+    daily_data_cache = {}
+    for date in dates:
+        daily_data_cache[date] = get_grouped_daily(date)
+
+    # Calculate up/down counts for each of the last 10 days
+    daily_counts = []
+    for i in range(10):
+        if i + 1 >= len(dates):
+            break
+
+        current_date = dates[i]
+        prev_date = dates[i + 1]
+
+        current_data = daily_data_cache.get(current_date, {})
+        prev_data = daily_data_cache.get(prev_date, {})
+
+        if current_data and prev_data:
+            up, down = calculate_daily_movers(current_data, prev_data, universe)
+            daily_counts.append({'up': up, 'down': down})
+
+    # Calculate 5-day ratio (average of last 5 days)
+    ratio_5day = None
+    if len(daily_counts) >= 5:
+        total_up_5 = sum(d['up'] for d in daily_counts[:5])
+        total_down_5 = sum(d['down'] for d in daily_counts[:5])
+        if total_down_5 > 0:
+            ratio_5day = round(total_up_5 / total_down_5, 2)
+        elif total_up_5 > 0:
+            ratio_5day = 99.99  # Very high ratio when no down movers
+
+    # Calculate 10-day ratio (average of last 10 days)
+    ratio_10day = None
+    if len(daily_counts) >= 10:
+        total_up_10 = sum(d['up'] for d in daily_counts[:10])
+        total_down_10 = sum(d['down'] for d in daily_counts[:10])
+        if total_down_10 > 0:
+            ratio_10day = round(total_up_10 / total_down_10, 2)
+        elif total_up_10 > 0:
+            ratio_10day = 99.99  # Very high ratio when no down movers
+
+    return ratio_5day, ratio_10day
+
+
+def calculate_t2108(snapshots: dict, universe: list) -> float:
+    """
+    Calculate T2108: percentage of stocks above their 40-day moving average.
+    """
+    # Get the last 45 trading dates for 40-day MA calculation
+    dates = get_trading_dates(45)
+
+    if len(dates) < 40:
+        return None
+
+    # Fetch daily close data for each date
+    price_history = {}  # symbol -> list of closes (oldest to newest)
+
+    for date in reversed(dates[:40]):  # Get 40 days, oldest first
+        daily_closes = get_grouped_daily_close(date)
+        for symbol in universe:
+            if symbol in daily_closes:
+                if symbol not in price_history:
+                    price_history[symbol] = []
+                price_history[symbol].append(daily_closes[symbol])
+
+    # Calculate how many stocks are above their 40-day MA
+    above_ma_count = 0
+    total_valid = 0
+
+    for symbol in universe:
+        # Get current price from snapshot
+        if symbol not in snapshots:
+            continue
+
+        snap = snapshots[symbol]
+        day = snap.get('day', {})
+        last_trade = snap.get('lastTrade', {})
+
+        current_price = (
+            last_trade.get('p') or
+            day.get('c') or
+            snap.get('min', {}).get('c') or
+            0
+        )
+
+        if current_price <= 0:
+            continue
+
+        # Calculate 40-day MA
+        history = price_history.get(symbol, [])
+        if len(history) >= 40:
+            ma_40 = sum(history[-40:]) / 40
+            total_valid += 1
+            if current_price > ma_40:
+                above_ma_count += 1
+
+    if total_valid == 0:
+        return None
+
+    return round((above_ma_count / total_valid) * 100, 1)
 
 
 def fetch_current_snapshots(symbols: list) -> dict:
@@ -181,7 +347,7 @@ def fetch_current_snapshots(symbols: list) -> dict:
     return snapshots
 
 
-def calculate_breadth_indicators(snapshots: dict, hist_21: dict, hist_34: dict, hist_63: dict) -> dict:
+def calculate_breadth_indicators(snapshots: dict, hist_21: dict, hist_34: dict, hist_63: dict, ratio_5day: float, ratio_10day: float, t2108: float) -> dict:
     """
     Calculate all breadth indicators from snapshot and historical data.
     """
@@ -274,8 +440,8 @@ def calculate_breadth_indicators(snapshots: dict, hist_21: dict, hist_34: dict, 
         'primary': {
             'up4PlusToday': up_4_today,
             'down4PlusToday': down_4_today,
-            'ratio5Day': None,  # Phase 2 - requires historical daily counts
-            'ratio10Day': None,  # Phase 2 - requires historical daily counts
+            'ratio5Day': ratio_5day,
+            'ratio10Day': ratio_10day,
             'up25PlusQuarter': up_25_quarter,
             'down25PlusQuarter': down_25_quarter
         },
@@ -291,7 +457,8 @@ def calculate_breadth_indicators(snapshots: dict, hist_21: dict, hist_34: dict, 
             'spyValue': round(spy_value, 2),
             'spyChange': round(spy_change, 2),
             'spyChangePercent': round(spy_change_pct, 2)
-        }
+        },
+        't2108': t2108
     }
 
 
@@ -324,8 +491,18 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         logging.info(f"Got historical data: 21d={len(hist_21)}, 34d={len(hist_34)}, 63d={len(hist_63)}")
 
+        # Calculate rolling ratios (5-day and 10-day)
+        logging.info("Calculating rolling ratios...")
+        ratio_5day, ratio_10day = calculate_rolling_ratios(BREADTH_UNIVERSE)
+        logging.info(f"Rolling ratios: 5D={ratio_5day}, 10D={ratio_10day}")
+
+        # Calculate T2108 (% above 40-day MA)
+        logging.info("Calculating T2108...")
+        t2108 = calculate_t2108(snapshots, BREADTH_UNIVERSE)
+        logging.info(f"T2108: {t2108}%")
+
         # Calculate breadth indicators
-        indicators = calculate_breadth_indicators(snapshots, hist_21, hist_34, hist_63)
+        indicators = calculate_breadth_indicators(snapshots, hist_21, hist_34, hist_63, ratio_5day, ratio_10day, t2108)
 
         # Build response
         response = {
