@@ -7,6 +7,7 @@ import { DayTradeCard } from './components/DayTradeCard';
 import { StockModal } from './components/StockModal';
 import { MarketIndices } from './components/MarketIndices';
 import { StockAnalysisView } from './components/StockAnalysisView';
+import { FocusStocksView } from './components/FocusStocksView';
 
 const API_BASE = '/api';
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -80,7 +81,7 @@ function getAllSymbols(): string[] {
   return Array.from(symbols);
 }
 
-type DashboardType = 'analysis' | 'swing' | 'daytrade';
+type DashboardType = 'analysis' | 'focus' | 'swing' | 'daytrade';
 
 function App() {
   const [activeTab, setActiveTab] = useState<DashboardType>('analysis');
@@ -340,6 +341,16 @@ function App() {
               Stock Analysis
             </button>
             <button
+              onClick={() => setActiveTab('focus')}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                activeTab === 'focus'
+                  ? 'bg-gray-800 text-white border-t border-l border-r border-gray-700'
+                  : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800/50'
+              }`}
+            >
+              Focus Stocks
+            </button>
+            <button
               onClick={() => setActiveTab('swing')}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
                 activeTab === 'swing'
@@ -383,6 +394,9 @@ function App() {
         {activeTab === 'analysis' ? (
           // Stock Analysis Dashboard
           <StockAnalysisView />
+        ) : activeTab === 'focus' ? (
+          // Focus Stocks Dashboard
+          <FocusStocksView />
         ) : activeTab === 'swing' ? (
           // Swing Trading Dashboard
           loading && etfData.length === 0 ? (

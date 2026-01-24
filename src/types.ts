@@ -147,3 +147,20 @@ export interface DividendInfo {
   amount: number;
   frequency: number;
 }
+
+// Focus Stocks Types
+export interface FocusStock {
+  symbol: string;
+  last: number;
+  open: number;
+  high: number;
+  low: number;
+  volume: number;
+  avgVolume: number;
+  relativeVolume: number;
+  changeFromOpen: number;
+  changeFromOpenPercent: number;
+  change: number;
+  changePercent: number;
+  previousClose: number;
+}
