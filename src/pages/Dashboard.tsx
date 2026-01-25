@@ -349,6 +349,10 @@ export function Dashboard() {
 
   // Show subscription required page if user doesn't have access
   if (subscriptionStatus && !subscriptionStatus.has_access) {
+    // Check for checkout errors in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const checkoutError = urlParams.get('checkout_error');
+
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
         <div className="max-w-md w-full bg-gray-800 rounded-2xl p-8 text-center border border-gray-700">
@@ -359,6 +363,12 @@ export function Dashboard() {
           <p className="text-gray-400 mb-6">
             Get access to AI-powered stock analysis, market insights, and more for just $6.99/month.
           </p>
+
+          {checkoutError && (
+            <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm">
+              Checkout error: {decodeURIComponent(checkoutError)}
+            </div>
+          )}
 
           <div className="bg-gray-700/50 rounded-xl p-4 mb-6 text-left">
             <h3 className="text-white font-semibold mb-3">What you get:</h3>
