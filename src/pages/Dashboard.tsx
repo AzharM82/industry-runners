@@ -479,6 +479,13 @@ export function Dashboard() {
               >
                 {loading ? 'Loading...' : 'Refresh'}
               </button>
+              <a
+                href="mailto:reachazure37@gmail.com?subject=StockPro%20AI%20Feedback&body=Hi%2C%0A%0AI%20wanted%20to%20share%20my%20feedback%20about%20StockPro%20AI%3A%0A%0A"
+                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors"
+                title="Send us your feedback"
+              >
+                Feedback
+              </a>
               <button
                 onClick={logout}
                 className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"

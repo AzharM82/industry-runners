@@ -497,17 +497,28 @@ export function PromptRunner() {
       {/* Beta Mode Banner */}
       {isBeta && (
         <div className="bg-gradient-to-r from-purple-900/40 to-pink-900/40 border border-purple-500/50 rounded-xl p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-purple-500/30 rounded-full flex items-center justify-center">
-              <span className="text-xl">🚀</span>
-            </div>
-            <div>
-              <div className="font-semibold text-purple-300">Beta Testing Mode</div>
-              <div className="text-sm text-gray-400">
-                Welcome! You have <span className="text-purple-300 font-medium">3 free prompts</span> per analysis type to try out our AI tools.
-                Full access with 30 prompts/month coming soon!
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-purple-500/30 rounded-full flex items-center justify-center">
+                <span className="text-xl">🚀</span>
+              </div>
+              <div>
+                <div className="font-semibold text-purple-300">Beta Testing Mode</div>
+                <div className="text-sm text-gray-400">
+                  Welcome! You have <span className="text-purple-300 font-medium">3 free prompts</span> per analysis type to try out our AI tools.
+                  Full access with 30 prompts/month coming soon!
+                </div>
               </div>
             </div>
+            <a
+              href="mailto:reachazure37@gmail.com?subject=StockPro%20AI%20Beta%20Feedback&body=Hi%2C%0A%0AI%20wanted%20to%20share%20my%20feedback%20about%20StockPro%20AI%3A%0A%0AWhat%20I%20liked%3A%0A%0A%0AWhat%20could%20be%20improved%3A%0A%0A%0AOther%20suggestions%3A%0A%0A"
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              Send Feedback
+            </a>
           </div>
         </div>
       )}
