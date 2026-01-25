@@ -134,6 +134,25 @@ export function BreadthIndicatorsView() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
+  // Filter history to only show completed business days (no future dates, no weekends)
+  const filterBusinessDays = (items: { date: string; data: BreadthData | FinvizBreadthData }[]) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return items.filter(item => {
+      const date = new Date(item.date + 'T00:00:00');
+      const day = date.getDay();
+
+      // Exclude weekends (0 = Sunday, 6 = Saturday)
+      if (day === 0 || day === 6) return false;
+
+      // Exclude future dates (only show today or earlier)
+      if (date > today) return false;
+
+      return true;
+    });
+  };
+
   // Helper to render a metric cell with color
   const MetricCell = ({ value, type, label }: { value: number | null | undefined; type: 'up' | 'down' | 'ratio' | 'neutral'; label?: string }) => {
     let bgColor = 'bg-gray-700';
@@ -312,7 +331,7 @@ export function BreadthIndicatorsView() {
           </div>
 
           {/* Real-Time History Table */}
-          {historyData && historyData.realtime.length > 0 && (
+          {historyData && filterBusinessDays(historyData.realtime).length > 0 && (
             <div className="bg-gray-800 rounded-lg p-4">
               <h4 className="text-sm font-medium text-gray-400 mb-3">5-Day History (Real-Time)</h4>
               <div className="overflow-x-auto">
@@ -327,7 +346,7 @@ export function BreadthIndicatorsView() {
                     </tr>
                   </thead>
                   <tbody>
-                    {historyData.realtime.map((item) => {
+                    {filterBusinessDays(historyData.realtime).map((item) => {
                       const data = item.data as BreadthData;
                       return (
                         <tr key={item.date} className="border-b border-gray-700/50">
@@ -428,7 +447,7 @@ export function BreadthIndicatorsView() {
           </div>
 
           {/* Finviz History Table */}
-          {historyData && historyData.daily.length > 0 && (
+          {historyData && filterBusinessDays(historyData.daily).length > 0 && (
             <div className="bg-gray-800 rounded-lg p-4">
               <h4 className="text-sm font-medium text-gray-400 mb-3">5-Day History (Technical)</h4>
               <div className="overflow-x-auto">
@@ -443,7 +462,7 @@ export function BreadthIndicatorsView() {
                     </tr>
                   </thead>
                   <tbody>
-                    {historyData.daily.map((item) => {
+                    {filterBusinessDays(historyData.daily).map((item) => {
                       const data = item.data as FinvizBreadthData;
                       return (
                         <tr key={item.date} className="border-b border-gray-700/50">
