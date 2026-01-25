@@ -374,7 +374,8 @@ export function Dashboard() {
   }
 
   // Show subscription required page if user doesn't have access
-  if (subscriptionStatus && !subscriptionStatus.has_access) {
+  // Default to blocking if subscription status is missing or has_access is not explicitly true
+  if (!subscriptionStatus || !subscriptionStatus.has_access) {
     // Check for checkout errors in URL
     const urlParams = new URLSearchParams(window.location.search);
     const checkoutError = urlParams.get('checkout_error');
