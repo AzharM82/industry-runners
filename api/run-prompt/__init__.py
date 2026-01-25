@@ -519,7 +519,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
 Based on the market data above, provide a comprehensive 13-point equity research analysis. Use the actual numbers provided to calculate specific price targets (Bear Case / Base Case / Bull Case) based on valuation multiples and DCF considerations."""
         elif prompt_type == 'halal':
-            user_text = f"Check the Halal Status for {ticker}"
+            # Fetch real market data from Polygon for Halal compliance check
+            logging.info(f"Fetching Polygon market data for {ticker} (Halal check)")
+            market_data = fetch_polygon_market_data(ticker)
+            market_data_text = format_market_data_for_prompt(ticker, market_data)
+            user_text = f"""Check the Halal Status for {ticker}
+
+{market_data_text}
+
+Using the financial data above, perform a comprehensive AAOIFI Shariah compliance analysis. Calculate the specific ratios:
+1. Debt-to-Market Cap Ratio (threshold: ≤30%)
+2. Interest Income Ratio (threshold: ≤5%)
+
+If the stock ticker is not recognized or data is limited, still provide your best analysis based on available information about the company. Search your knowledge for any information about this company."""
         else:
             user_text = f"Analyze {ticker}"
 
