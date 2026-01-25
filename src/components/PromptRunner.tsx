@@ -45,11 +45,25 @@ export function PromptRunner() {
   const [error, setError] = useState<string | null>(null);
   const [chartImage, setChartImage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [forceRefresh, setForceRefresh] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
   const selectedPromptConfig = PROMPT_TYPES.find(p => p.id === selectedPrompt);
   const requiresImage = selectedPromptConfig?.requiresImage ?? false;
+
+  // Check if user is admin
+  useEffect(() => {
+    fetch('/api/subscription-status')
+      .then(res => res.json())
+      .then(data => {
+        if (data.is_admin) {
+          setIsAdmin(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const processImage = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -151,13 +165,17 @@ export function PromptRunner() {
     setResult(null);
 
     try {
-      const requestBody: Record<string, string> = {
+      const requestBody: Record<string, string | boolean> = {
         prompt_type: selectedPrompt,
         ticker: ticker.trim().toUpperCase()
       };
 
       if (requiresImage && chartImage) {
         requestBody.image = chartImage;
+      }
+
+      if (isAdmin && forceRefresh) {
+        requestBody.force_refresh = true;
       }
 
       const response = await fetch('/api/run-prompt', {
@@ -261,6 +279,18 @@ export function PromptRunner() {
             >
               Clear
             </button>
+          )}
+          {/* Admin-only: Force Refresh option */}
+          {isAdmin && (
+            <label className="flex items-center gap-2 px-3 py-2 text-sm text-yellow-400 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={forceRefresh}
+                onChange={(e) => setForceRefresh(e.target.checked)}
+                className="w-4 h-4 rounded border-yellow-500 text-yellow-500 focus:ring-yellow-500 bg-gray-800"
+              />
+              Skip Cache
+            </label>
           )}
         </div>
       </div>
