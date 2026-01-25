@@ -430,28 +430,45 @@ export function PromptRunner() {
         requestBody.force_refresh = true;
       }
 
-      const response = await fetch('/api/run-prompt', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody)
-      });
+      // Use AbortController for timeout (5 minutes for web search requests)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout
 
-      const data = await response.json();
+      try {
+        const response = await fetch('/api/run-prompt', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal
+        });
 
-      if (!response.ok) {
-        if (data.code === 'NO_SUBSCRIPTION') {
-          setError('Active subscription required. Please subscribe to use this feature.');
-        } else if (data.code === 'LIMIT_REACHED') {
-          setError(`Monthly limit reached (${data.limit} prompts). Limit resets next month.`);
+        clearTimeout(timeoutId);
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          if (data.code === 'NO_SUBSCRIPTION') {
+            setError('Active subscription required. Please subscribe to use this feature.');
+          } else if (data.code === 'LIMIT_REACHED') {
+            setError(`Monthly limit reached (${data.limit} prompts). Limit resets next month.`);
+          } else {
+            setError(data.error || 'Failed to run analysis');
+          }
+          return;
+        }
+
+        setResult(data);
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          setError('Request timed out. Please try again - the analysis is taking longer than expected.');
         } else {
-          setError(data.error || 'Failed to run analysis');
+          throw fetchError;
         }
         return;
       }
-
-      setResult(data);
       // Refresh usage data after successful analysis
       fetchUsageData();
     } catch (err) {

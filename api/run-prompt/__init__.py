@@ -561,24 +561,36 @@ If the stock ticker is not recognized or data is limited, still provide your bes
         # Enable web search for research prompts (deep-research, halal)
         # This allows Claude to search the internet for stock information
         use_web_search = prompt_type in ['deep-research', 'halal']
+        response = None
 
         if use_web_search:
-            logging.info(f"Enabling web search for {prompt_type}")
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=16000,
-                system=system_prompt,
-                tools=[
-                    {
-                        "type": "web_search_20250305",
-                        "name": "web_search",
-                        "max_uses": 5
-                    }
-                ],
-                messages=[
-                    {"role": "user", "content": message_content}
-                ]
-            )
+            logging.info(f"Attempting web search for {prompt_type}")
+            try:
+                response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=16000,
+                    system=system_prompt,
+                    tools=[
+                        {
+                            "type": "web_search_20250305"
+                        }
+                    ],
+                    messages=[
+                        {"role": "user", "content": message_content}
+                    ]
+                )
+                logging.info(f"Web search response received for {prompt_type}")
+            except Exception as web_search_error:
+                logging.warning(f"Web search failed, falling back to standard API: {web_search_error}")
+                # Fallback to standard API without web search
+                response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=8000,
+                    system=system_prompt,
+                    messages=[
+                        {"role": "user", "content": message_content}
+                    ]
+                )
         else:
             response = client.messages.create(
                 model="claude-sonnet-4-20250514",
@@ -594,7 +606,7 @@ If the stock ticker is not recognized or data is limited, still provide your bes
         for block in response.content:
             if hasattr(block, 'text'):
                 result_parts.append(block.text)
-        result = "\n".join(result_parts) if result_parts else response.content[0].text
+        result = "\n".join(result_parts) if result_parts else str(response.content[0])
 
         # Cache the result (24 hours) - cache all non-image requests
         if redis_client and not has_image:
