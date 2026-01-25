@@ -1,11 +1,17 @@
 import json
 import os
 import logging
+import sys
 from datetime import datetime, timedelta
 import azure.functions as func
 import urllib.request
 
+# Import shared cache module
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from shared.cache import get_cached, set_cached, CACHE_TTL_REALTIME
+
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
+CACHE_KEY_DAYTRADE = 'daytrade:realtime'
 POLYGON_BASE_URL = 'https://api.polygon.io'
 
 # ETF groups with expanded holdings for day trading
@@ -171,6 +177,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     try:
         excluded_param = req.params.get('excluded', '')
         excluded_symbols = set(s.strip().upper() for s in excluded_param.split(',') if s.strip())
+        refresh = req.params.get('refresh', '').lower() == 'true'
 
         if not POLYGON_API_KEY:
             return func.HttpResponse(
@@ -178,6 +185,24 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 status_code=500,
                 mimetype="application/json"
             )
+
+        # Check cache first (unless refresh requested or excluded symbols provided)
+        cache_key = CACHE_KEY_DAYTRADE
+        if excluded_symbols:
+            # Different cache key if exclusions are provided
+            cache_key = f"{CACHE_KEY_DAYTRADE}:excluded:{hash(frozenset(excluded_symbols))}"
+
+        if not refresh:
+            cached_data = get_cached(cache_key)
+            if cached_data:
+                logging.info(f"Cache hit for {cache_key}")
+                cached_data['cached'] = True
+                return func.HttpResponse(
+                    json.dumps(cached_data),
+                    mimetype="application/json"
+                )
+
+        logging.info(f"Cache miss for {cache_key}, computing daytrade data...")
 
         results = {}
         global_used_symbols = set(excluded_symbols)
@@ -247,12 +272,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 'stocks': top_stocks
             }
 
+        response_data = {
+            'groups': results,
+            'excludedCount': len(excluded_symbols),
+            'timestamp': datetime.now().isoformat(),
+            'cached': False
+        }
+
+        # Cache the result (5 minutes TTL)
+        set_cached(cache_key, response_data, CACHE_TTL_REALTIME)
+        logging.info(f"Cached daytrade data with key {cache_key}")
+
         return func.HttpResponse(
-            json.dumps({
-                'groups': results,
-                'excludedCount': len(excluded_symbols),
-                'timestamp': datetime.now().isoformat()
-            }),
+            json.dumps(response_data),
             mimetype="application/json"
         )
 

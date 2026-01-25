@@ -1,12 +1,19 @@
 import json
 import os
 import logging
+import sys
+from datetime import datetime
 import azure.functions as func
 import urllib.request
 import ssl
 
+# Import shared cache module
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from shared.cache import get_cached, set_cached
+
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
 POLYGON_BASE_URL = 'https://api.polygon.io'
+CACHE_TTL_FOCUSSTOCKS = 2 * 60  # 2 minutes for real-time focus stocks
 
 def polygon_request(endpoint: str) -> dict:
     """Make a request to Polygon API"""
@@ -44,6 +51,25 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         symbols = [s.strip().upper() for s in symbols_param.split(',') if s.strip()]
+
+        # Check for refresh parameter
+        refresh = req.params.get('refresh', '').lower() == 'true'
+
+        # Create cache key based on sorted symbols
+        cache_key = f"focusstocks:{hash(frozenset(symbols))}"
+
+        # Check cache first (unless refresh requested)
+        if not refresh:
+            cached_data = get_cached(cache_key)
+            if cached_data:
+                logging.info(f"Cache hit for focusstocks")
+                cached_data['cached'] = True
+                return func.HttpResponse(
+                    json.dumps(cached_data),
+                    mimetype="application/json"
+                )
+
+        logging.info(f"Cache miss for focusstocks, fetching {len(symbols)} symbols...")
 
         # Fetch snapshot data for all symbols (single API call)
         snapshot_data = polygon_request(f"/v2/snapshot/locale/us/markets/stocks/tickers?tickers={','.join(symbols)}")
@@ -102,11 +128,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 logging.error(f"Error processing {ticker_data.get('ticker', 'unknown')}: {e}")
                 continue
 
+        response_data = {
+            'stocks': stocks,
+            'count': len(stocks),
+            'timestamp': datetime.now().isoformat(),
+            'cached': False
+        }
+
+        # Cache the result
+        set_cached(cache_key, response_data, CACHE_TTL_FOCUSSTOCKS)
+        logging.info(f"Cached focusstocks data for {len(symbols)} symbols")
+
         return func.HttpResponse(
-            json.dumps({
-                'stocks': stocks,
-                'count': len(stocks)
-            }),
+            json.dumps(response_data),
             mimetype="application/json"
         )
 

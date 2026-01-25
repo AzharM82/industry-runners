@@ -1,13 +1,19 @@
 import json
 import os
 import logging
+import sys
 from datetime import datetime, timedelta
 import azure.functions as func
 import urllib.request
 import ssl
 
+# Import shared cache module
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from shared.cache import get_cached, set_cached
+
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
 POLYGON_BASE_URL = 'https://api.polygon.io'
+CACHE_TTL_ANALYSIS = 5 * 60  # 5 minutes for full analysis
 
 def polygon_request(endpoint: str) -> dict:
     """Make a request to Polygon API"""
@@ -237,6 +243,25 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json"
             )
 
+        # Check for refresh parameter
+        refresh = req.params.get('refresh', '').lower() == 'true'
+
+        # Create cache key for this symbol
+        cache_key = f"analysis:{symbol}"
+
+        # Check cache first (unless refresh requested)
+        if not refresh:
+            cached_data = get_cached(cache_key)
+            if cached_data:
+                logging.info(f"Cache hit for analysis: {symbol}")
+                cached_data['cached'] = True
+                return func.HttpResponse(
+                    json.dumps(cached_data),
+                    mimetype="application/json"
+                )
+
+        logging.info(f"Cache miss for analysis: {symbol}, fetching data...")
+
         # Get snapshot data
         snapshot = get_snapshot(symbol)
         if not snapshot:
@@ -321,8 +346,16 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
             # Dividends
             'dividends': dividends,
-            'dividendYield': dividend_yield
+            'dividendYield': dividend_yield,
+
+            # Metadata
+            'timestamp': datetime.now().isoformat(),
+            'cached': False
         }
+
+        # Cache the result
+        set_cached(cache_key, result, CACHE_TTL_ANALYSIS)
+        logging.info(f"Cached analysis data for {symbol}")
 
         return func.HttpResponse(
             json.dumps(result),

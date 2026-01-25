@@ -1,12 +1,18 @@
 import json
 import os
 import logging
+import sys
 from datetime import datetime, timedelta
 import azure.functions as func
 import urllib.request
 
+# Import shared cache module
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from shared.cache import get_cached, set_cached
+
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
 POLYGON_BASE_URL = 'https://api.polygon.io'
+CACHE_TTL_QUOTES = 30  # 30 seconds for real-time quotes
 
 def polygon_request(endpoint: str) -> dict:
     """Make a request to Polygon API"""
@@ -65,6 +71,25 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         symbols = [s.strip().upper() for s in symbols_param.split(',') if s.strip()]
+
+        # Check for refresh parameter
+        refresh = req.params.get('refresh', '').lower() == 'true'
+
+        # Create cache key based on sorted symbols
+        cache_key = f"quotes:{hash(frozenset(symbols))}"
+
+        # Check cache first (unless refresh requested)
+        if not refresh:
+            cached_data = get_cached(cache_key)
+            if cached_data:
+                logging.info(f"Cache hit for quotes ({len(symbols)} symbols)")
+                cached_data['cached'] = True
+                return func.HttpResponse(
+                    json.dumps(cached_data),
+                    mimetype="application/json"
+                )
+
+        logging.info(f"Cache miss for quotes, fetching {len(symbols)} symbols...")
 
         # Use Polygon's snapshot endpoint
         data = polygon_request(f"/v2/snapshot/locale/us/markets/stocks/tickers?tickers={','.join(symbols)}")
@@ -134,12 +159,20 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             except Exception as e:
                 errors.append(f'{symbol}: {str(e)}')
 
+        response_data = {
+            'quotes': quotes,
+            'errors': errors if errors else None,
+            'count': len(quotes),
+            'timestamp': datetime.now().isoformat(),
+            'cached': False
+        }
+
+        # Cache the result
+        set_cached(cache_key, response_data, CACHE_TTL_QUOTES)
+        logging.info(f"Cached quotes for {len(symbols)} symbols")
+
         return func.HttpResponse(
-            json.dumps({
-                'quotes': quotes,
-                'errors': errors if errors else None,
-                'count': len(quotes)
-            }),
+            json.dumps(response_data),
             mimetype="application/json"
         )
 
