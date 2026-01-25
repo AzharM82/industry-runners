@@ -453,14 +453,17 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype='application/json'
             )
 
-        # Check cache (skip for image-based requests since each chart is unique)
+        # Check cache (skip for image-based requests and deep-research which uses live market data)
         today = datetime.now().strftime('%Y-%m-%d')
         cache_key = f"prompt:{prompt_type}:{ticker}:{today}"
         cached_result = None
         redis_client = get_redis_client()
 
-        # Only use cache for non-image requests
-        if redis_client and not has_image:
+        # Skip cache for: images (unique charts), deep-research (live market data)
+        skip_cache = has_image or prompt_type == 'deep-research'
+
+        # Only use cache for cacheable requests
+        if redis_client and not skip_cache:
             try:
                 cached = redis_client.get(cache_key)
                 if cached:
@@ -550,8 +553,8 @@ Based on the market data above, provide a comprehensive 13-point equity research
 
         result = response.content[0].text
 
-        # Cache the result (24 hours) - only for non-image requests
-        if redis_client and not has_image:
+        # Cache the result (24 hours) - only for cacheable requests (halal only currently)
+        if redis_client and not skip_cache:
             try:
                 redis_client.setex(cache_key, 86400, result)
                 logging.info(f"Cached result for {cache_key}")

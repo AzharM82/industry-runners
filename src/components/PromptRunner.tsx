@@ -125,6 +125,16 @@ export function PromptRunner() {
     }
   };
 
+  const clearAll = () => {
+    setTicker('');
+    setResult(null);
+    setError(null);
+    setChartImage(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleRun = async () => {
     if (!selectedPrompt || !ticker.trim()) {
       setError('Please select a prompt type and enter a ticker');
@@ -225,7 +235,7 @@ export function PromptRunner() {
             disabled={loading}
           />
         </div>
-        <div className="flex items-end">
+        <div className="flex items-end gap-2">
           <button
             onClick={handleRun}
             disabled={loading || !selectedPrompt || !ticker.trim() || (requiresImage && !chartImage)}
@@ -243,6 +253,15 @@ export function PromptRunner() {
               'Run Analysis'
             )}
           </button>
+          {(result || ticker || chartImage) && !loading && (
+            <button
+              onClick={clearAll}
+              className="px-4 py-3 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition-colors"
+              title="Clear form and results"
+            >
+              Clear
+            </button>
+          )}
         </div>
       </div>
 
