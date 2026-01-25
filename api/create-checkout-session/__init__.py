@@ -51,11 +51,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Check if admin (no payment needed)
         if is_admin(user_email):
             return func.HttpResponse(
-                json.dumps({
-                    'message': 'Admin user - no payment required',
-                    'redirect': '/dashboard'
-                }),
-                mimetype='application/json'
+                status_code=302,
+                headers={'Location': f"{SITE_URL}/dashboard"}
             )
 
         # Get or create user in database
@@ -83,18 +80,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 'quantity': 1,
             }],
             success_url=f"{SITE_URL}/dashboard?success=true",
-            cancel_url=f"{SITE_URL}/pricing?cancelled=true",
+            cancel_url=f"{SITE_URL}/dashboard?cancelled=true",
             metadata={
                 'user_id': str(user['id']),
                 'user_email': user_email
             }
         )
 
-        logging.info(f"Created checkout session for {user_email}")
+        logging.info(f"Created checkout session for {user_email}, redirecting to Stripe")
 
+        # Redirect directly to Stripe checkout
         return func.HttpResponse(
-            json.dumps({'url': session.url}),
-            mimetype='application/json'
+            status_code=302,
+            headers={'Location': session.url}
         )
 
     except Exception as e:
