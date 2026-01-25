@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { jsPDF } from 'jspdf';
 
 interface Usage {
   used: number;
@@ -147,6 +148,61 @@ export function PromptRunner() {
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  const downloadPdf = () => {
+    if (!result) return;
+
+    const promptConfig = PROMPT_TYPES.find(p => p.id === result.prompt_type);
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 20;
+    const maxWidth = pageWidth - margin * 2;
+    let yPosition = margin;
+
+    // Title
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${promptConfig?.name || 'Analysis'}: ${result.ticker}`, margin, yPosition);
+    yPosition += 10;
+
+    // Date
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100);
+    doc.text(`Generated: ${new Date().toLocaleDateString()} | StockPro AI`, margin, yPosition);
+    yPosition += 10;
+
+    // Divider line
+    doc.setDrawColor(200);
+    doc.line(margin, yPosition, pageWidth - margin, yPosition);
+    yPosition += 10;
+
+    // Content
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(0);
+
+    const lines = doc.splitTextToSize(result.result, maxWidth);
+
+    for (const line of lines) {
+      if (yPosition > pageHeight - margin) {
+        doc.addPage();
+        yPosition = margin;
+      }
+      doc.text(line, margin, yPosition);
+      yPosition += 5;
+    }
+
+    // Footer on last page
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.text('www.stockproai.net', margin, pageHeight - 10);
+
+    // Download
+    const filename = `${result.ticker}_${result.prompt_type}_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(filename);
   };
 
   const handleRun = async () => {
@@ -389,6 +445,16 @@ export function PromptRunner() {
               <span className="text-xs text-gray-500">
                 {result.usage.used} / {result.usage.limit} used this month
               </span>
+              <button
+                onClick={downloadPdf}
+                className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+                title="Download as PDF"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                PDF
+              </button>
             </div>
           </div>
 
