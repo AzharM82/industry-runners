@@ -9,6 +9,7 @@ import { MarketIndices } from '../components/MarketIndices';
 import { StockAnalysisView } from '../components/StockAnalysisView';
 import { FocusStocksView } from '../components/FocusStocksView';
 import { BreadthIndicatorsView } from '../components/BreadthIndicatorsView';
+import { PromptRunner } from '../components/PromptRunner';
 import { useAuth, logout } from '../hooks';
 
 const API_BASE = '/api';
@@ -83,11 +84,11 @@ function getAllSymbols(): string[] {
   return Array.from(symbols);
 }
 
-type DashboardType = 'analysis' | 'focus' | 'breadth' | 'swing' | 'daytrade';
+type DashboardType = 'ai-analysis' | 'analysis' | 'focus' | 'breadth' | 'swing' | 'daytrade';
 
 export function Dashboard() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<DashboardType>('analysis');
+  const [activeTab, setActiveTab] = useState<DashboardType>('ai-analysis');
   const [quotes, setQuotes] = useState<Record<string, StockQuote>>({});
   const [indices, setIndices] = useState<MarketIndex[]>([]);
   const [loading, setLoading] = useState(true);
@@ -348,10 +349,20 @@ export function Dashboard() {
           </div>
 
           {/* Dashboard Tabs */}
-          <div className="flex gap-1 mt-3">
+          <div className="flex gap-1 mt-3 overflow-x-auto">
+            <button
+              onClick={() => setActiveTab('ai-analysis')}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
+                activeTab === 'ai-analysis'
+                  ? 'bg-blue-600 text-white border-t border-l border-r border-blue-500'
+                  : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800/50'
+              }`}
+            >
+              AI Analysis
+            </button>
             <button
               onClick={() => setActiveTab('analysis')}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
                 activeTab === 'analysis'
                   ? 'bg-gray-800 text-white border-t border-l border-r border-gray-700'
                   : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800/50'
@@ -420,7 +431,10 @@ export function Dashboard() {
           </div>
         )}
 
-        {activeTab === 'analysis' ? (
+        {activeTab === 'ai-analysis' ? (
+          // AI Analysis Dashboard
+          <PromptRunner />
+        ) : activeTab === 'analysis' ? (
           // Stock Analysis Dashboard
           <StockAnalysisView />
         ) : activeTab === 'focus' ? (

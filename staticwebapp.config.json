@@ -56,6 +56,10 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/api/stripe-webhook",
+      "allowedRoles": ["anonymous"]
+    },
+    {
       "route": "/api/*",
       "allowedRoles": ["anonymous", "authenticated"]
     }

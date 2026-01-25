@@ -1,2 +1,5 @@
 azure-functions
 redis
+psycopg2-binary
+stripe
+anthropic
