@@ -7,11 +7,11 @@
 
 export const ADMIN_EMAILS: string[] = [
   // Owner
-  'your-email@example.com',  // TODO: Replace with your email
+  'reachazure37@gmail.com',
+  'reachazhar@hotmail.com',
 
   // Testers
   // 'tester1@example.com',
-  // 'tester2@example.com',
 ];
 
 /**
