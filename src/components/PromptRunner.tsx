@@ -231,44 +231,170 @@ export function PromptRunner() {
     const maxWidth = pageWidth - margin * 2;
     let yPosition = margin;
 
-    // Title
-    doc.setFontSize(18);
+    // Sanitize text - replace Unicode/emoji with ASCII equivalents
+    const sanitizeText = (text: string): string => {
+      return text
+        // Checkmarks and X marks
+        .replace(/✅/g, '[PASS]')
+        .replace(/❌/g, '[FAIL]')
+        .replace(/✓/g, '[OK]')
+        .replace(/✗/g, '[X]')
+        .replace(/☑/g, '[x]')
+        .replace(/☐/g, '[ ]')
+        // Emojis
+        .replace(/📊/g, '')
+        .replace(/📈/g, '')
+        .replace(/📉/g, '')
+        .replace(/💰/g, '$')
+        .replace(/⚡/g, '*')
+        .replace(/🎯/g, '>')
+        .replace(/⚠️/g, '[!]')
+        .replace(/📑/g, '')
+        .replace(/🔍/g, '')
+        .replace(/💡/g, '*')
+        .replace(/🚀/g, '^')
+        .replace(/⭐/g, '*')
+        // Box drawing and lines
+        .replace(/[━─═]/g, '-')
+        .replace(/[│┃]/g, '|')
+        .replace(/[┌┐└┘┼┬┴├┤]/g, '+')
+        // Arrows
+        .replace(/→/g, '->')
+        .replace(/←/g, '<-')
+        .replace(/↑/g, '^')
+        .replace(/↓/g, 'v')
+        .replace(/▲/g, '^')
+        .replace(/▼/g, 'v')
+        // Bullets
+        .replace(/•/g, '-')
+        .replace(/◦/g, '-')
+        .replace(/▪/g, '-')
+        .replace(/▸/g, '>')
+        // Other symbols
+        .replace(/[★☆]/g, '*')
+        .replace(/[©®™]/g, '')
+        // Remove any remaining non-ASCII characters
+        .replace(/[^\x00-\x7F]/g, '');
+    };
+
+    // Check if line is a section header
+    const isHeader = (line: string): boolean => {
+      const trimmed = line.trim();
+      return (
+        trimmed.startsWith('#') ||
+        trimmed.startsWith('===') ||
+        trimmed.startsWith('---') ||
+        trimmed.match(/^[A-Z][A-Z\s]+:?\s*$/) !== null ||
+        trimmed.match(/^\d+\.\s+[A-Z]/) !== null ||
+        trimmed.match(/^[A-Z][A-Z\s]{5,}$/) !== null
+      );
+    };
+
+    // Check if line is a subheader
+    const isSubHeader = (line: string): boolean => {
+      const trimmed = line.trim();
+      return (
+        trimmed.match(/^\*\*[^*]+\*\*:?\s*$/) !== null ||
+        trimmed.match(/^[A-Z][a-z]+(\s[A-Z][a-z]+)*:/) !== null
+      );
+    };
+
+    // Add page footer
+    const addFooter = () => {
+      doc.setFontSize(8);
+      doc.setTextColor(150);
+      doc.text('www.stockproai.net', margin, pageHeight - 10);
+      doc.text(`Page ${doc.getNumberOfPages()}`, pageWidth - margin - 20, pageHeight - 10);
+    };
+
+    // Title header with background
+    doc.setFillColor(30, 58, 138); // Dark blue
+    doc.rect(0, 0, pageWidth, 35, 'F');
+
+    doc.setFontSize(20);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${promptConfig?.name || 'Analysis'}: ${result.ticker}`, margin, yPosition);
-    yPosition += 10;
+    doc.setTextColor(255, 255, 255);
+    doc.text(`${result.ticker} Analysis Report`, margin, 20);
 
-    // Date
-    doc.setFontSize(10);
+    doc.setFontSize(11);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100);
-    doc.text(`Generated: ${new Date().toLocaleDateString()} | StockPro AI`, margin, yPosition);
-    yPosition += 10;
+    doc.text(`${promptConfig?.name || 'Analysis'} | Generated: ${new Date().toLocaleDateString()}`, margin, 28);
 
-    // Divider line
-    doc.setDrawColor(200);
-    doc.line(margin, yPosition, pageWidth - margin, yPosition);
-    yPosition += 10;
+    yPosition = 45;
 
-    // Content
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(0);
+    // Sanitize and process content
+    const cleanContent = sanitizeText(result.result);
+    const contentLines = cleanContent.split('\n');
 
-    const lines = doc.splitTextToSize(result.result, maxWidth);
+    doc.setTextColor(0, 0, 0);
 
-    for (const line of lines) {
-      if (yPosition > pageHeight - margin) {
+    for (const rawLine of contentLines) {
+      const line = rawLine.trim();
+
+      // Skip empty lines but add spacing
+      if (!line) {
+        yPosition += 3;
+        continue;
+      }
+
+      // Skip pure decoration lines
+      if (line.match(/^[-=_]{3,}$/)) {
+        doc.setDrawColor(200);
+        doc.line(margin, yPosition, pageWidth - margin, yPosition);
+        yPosition += 5;
+        continue;
+      }
+
+      // Check for page break
+      if (yPosition > pageHeight - 25) {
+        addFooter();
         doc.addPage();
         yPosition = margin;
       }
-      doc.text(line, margin, yPosition);
-      yPosition += 5;
+
+      // Format based on line type
+      if (isHeader(line)) {
+        // Main section header
+        yPosition += 5;
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 58, 138); // Dark blue
+        const headerText = line.replace(/^#+\s*/, '').replace(/\*\*/g, '');
+        doc.text(headerText, margin, yPosition);
+        yPosition += 7;
+        doc.setTextColor(0, 0, 0);
+      } else if (isSubHeader(line)) {
+        // Subheader
+        yPosition += 2;
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        const subText = line.replace(/\*\*/g, '');
+        doc.text(subText, margin, yPosition);
+        yPosition += 5;
+      } else {
+        // Regular content
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+
+        // Handle bold text markers
+        const cleanLine = line.replace(/\*\*/g, '');
+
+        // Word wrap long lines
+        const wrappedLines = doc.splitTextToSize(cleanLine, maxWidth);
+        for (const wrappedLine of wrappedLines) {
+          if (yPosition > pageHeight - 25) {
+            addFooter();
+            doc.addPage();
+            yPosition = margin;
+          }
+          doc.text(wrappedLine, margin, yPosition);
+          yPosition += 4.5;
+        }
+      }
     }
 
-    // Footer on last page
-    doc.setFontSize(8);
-    doc.setTextColor(150);
-    doc.text('www.stockproai.net', margin, pageHeight - 10);
+    // Add footer to last page
+    addFooter();
 
     // Download
     const filename = `${result.ticker}_${result.prompt_type}_${new Date().toISOString().split('T')[0]}.pdf`;
