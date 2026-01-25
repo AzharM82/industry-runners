@@ -38,10 +38,45 @@ const PROMPT_TYPES = [
   }
 ];
 
+// Loading messages for different prompt types
+const LOADING_MESSAGES: Record<string, string[]> = {
+  'chartgpt': [
+    'Analyzing chart patterns...',
+    'Identifying support and resistance levels...',
+    'Evaluating trend indicators...',
+    'Calculating entry and exit points...',
+    'Assessing risk/reward ratios...',
+    'Finalizing technical analysis...'
+  ],
+  'deep-research': [
+    'Fetching market data...',
+    'Searching for company information...',
+    'Analyzing financial statements...',
+    'Evaluating competitive position...',
+    'Calculating valuation metrics...',
+    'Assessing growth drivers...',
+    'Analyzing risk factors...',
+    'Computing price targets...',
+    'Generating comprehensive report...'
+  ],
+  'halal': [
+    'Fetching financial data...',
+    'Searching for company details...',
+    'Analyzing business activities...',
+    'Calculating debt-to-market cap ratio...',
+    'Evaluating interest income ratio...',
+    'Checking prohibited revenue sources...',
+    'Verifying AAOIFI compliance...',
+    'Generating Shariah compliance report...'
+  ]
+};
+
 export function PromptRunner() {
   const [selectedPrompt, setSelectedPrompt] = useState<string>('');
   const [ticker, setTicker] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
+  const [loadingStep, setLoadingStep] = useState(0);
   const [result, setResult] = useState<PromptResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [chartImage, setChartImage] = useState<string | null>(null);
@@ -53,6 +88,29 @@ export function PromptRunner() {
 
   const selectedPromptConfig = PROMPT_TYPES.find(p => p.id === selectedPrompt);
   const requiresImage = selectedPromptConfig?.requiresImage ?? false;
+
+  // Rotate loading messages while processing
+  useEffect(() => {
+    if (!loading || !selectedPrompt) return;
+
+    const messages = LOADING_MESSAGES[selectedPrompt] || ['Processing...'];
+    setLoadingMessage(messages[0]);
+    setLoadingStep(0);
+
+    const interval = setInterval(() => {
+      setLoadingStep(prev => {
+        const nextStep = prev + 1;
+        if (nextStep < messages.length) {
+          setLoadingMessage(messages[nextStep]);
+          return nextStep;
+        }
+        // Stay on last message
+        return prev;
+      });
+    }, 3000); // Change message every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [loading, selectedPrompt]);
 
   // Check if user is admin
   useEffect(() => {
@@ -410,6 +468,49 @@ export function PromptRunner() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Loading Progress Display */}
+      {loading && (
+        <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-700/50 rounded-xl p-6">
+          <div className="flex items-center gap-4">
+            {/* Animated spinner */}
+            <div className="relative">
+              <div className="w-12 h-12 border-4 border-blue-500/30 rounded-full"></div>
+              <div className="absolute top-0 left-0 w-12 h-12 border-4 border-transparent border-t-blue-500 rounded-full animate-spin"></div>
+            </div>
+
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg font-semibold text-white">
+                  Analyzing {ticker}
+                </span>
+                <span className="text-xl">
+                  {selectedPromptConfig?.icon}
+                </span>
+              </div>
+              <p className="text-blue-300 animate-pulse">
+                {loadingMessage}
+              </p>
+
+              {/* Progress dots */}
+              <div className="flex gap-1 mt-3">
+                {(LOADING_MESSAGES[selectedPrompt] || []).map((_, idx) => (
+                  <div
+                    key={idx}
+                    className={`w-2 h-2 rounded-full transition-colors duration-300 ${
+                      idx <= loadingStep ? 'bg-blue-500' : 'bg-gray-600'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-500 mt-4 text-center">
+            This may take 30-60 seconds for comprehensive analysis with web search
+          </p>
         </div>
       )}
 
