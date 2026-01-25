@@ -197,3 +197,32 @@ export interface SecondaryBreadthIndicators {
   up13Plus34Days: number;
   down13Plus34Days: number;
 }
+
+// Finviz Daily Breadth Types
+export interface FinvizBreadthData {
+  date: string;
+  timestamp: number;
+  universeCount: number;
+  highs: {
+    new52WeekHigh: number;
+    new52WeekLow: number;
+    highLowRatio: number | null;
+  };
+  rsi: {
+    above70: number;
+    below30: number;
+    rsiRatio: number | null;
+  };
+  sma: {
+    aboveSMA20: number;
+    belowSMA20: number;
+    aboveSMA50: number;
+    belowSMA50: number;
+    aboveSMA200: number;
+    belowSMA200: number;
+  };
+  trend: {
+    goldenCross: number;
+    deathCross: number;
+  };
+}

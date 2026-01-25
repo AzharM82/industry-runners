@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { BreadthData } from '../types';
+import type { BreadthData, FinvizBreadthData } from '../types';
 
 const API_BASE = '/api';
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -21,8 +21,11 @@ function isMarketOpen(): boolean {
 
 export function BreadthIndicatorsView() {
   const [breadthData, setBreadthData] = useState<BreadthData | null>(null);
+  const [finvizData, setFinvizData] = useState<FinvizBreadthData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [finvizLoading, setFinvizLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [finvizError, setFinvizError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
@@ -52,12 +55,38 @@ export function BreadthIndicatorsView() {
     }
   }, []);
 
+  const fetchFinvizData = useCallback(async () => {
+    try {
+      setFinvizError(null);
+      const response = await fetch(`${API_BASE}/breadth-daily`);
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`HTTP ${response.status}: ${text}`);
+      }
+
+      const data = await response.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setFinvizData(data);
+    } catch (err) {
+      setFinvizError(err instanceof Error ? err.message : 'Failed to fetch Finviz data');
+      console.error('Error fetching Finviz data:', err);
+    } finally {
+      setFinvizLoading(false);
+    }
+  }, []);
+
   // Initial fetch
   useEffect(() => {
     fetchBreadthData();
-  }, [fetchBreadthData]);
+    fetchFinvizData();
+  }, [fetchBreadthData, fetchFinvizData]);
 
-  // Auto-refresh during market hours
+  // Auto-refresh during market hours (Polygon only - Finviz is daily)
   useEffect(() => {
     if (!autoRefresh) return;
 
@@ -72,7 +101,9 @@ export function BreadthIndicatorsView() {
 
   const handleRefresh = () => {
     setLoading(true);
+    setFinvizLoading(true);
     fetchBreadthData();
+    fetchFinvizData();
   };
 
   const formatTime = (date: Date) => {
@@ -83,6 +114,43 @@ export function BreadthIndicatorsView() {
     });
   };
 
+  // Helper to render a metric cell with color
+  const MetricCell = ({ value, type, label }: { value: number | null | undefined; type: 'up' | 'down' | 'ratio' | 'neutral'; label?: string }) => {
+    let bgColor = 'bg-gray-700';
+    let textColor = 'text-gray-500';
+
+    if (value != null) {
+      if (type === 'up') {
+        bgColor = 'bg-green-500/20';
+        textColor = 'text-green-400';
+      } else if (type === 'down') {
+        bgColor = 'bg-red-500/20';
+        textColor = 'text-red-400';
+      } else if (type === 'ratio') {
+        if (value > 1) {
+          bgColor = 'bg-green-500/20';
+          textColor = 'text-green-400';
+        } else if (value < 1) {
+          bgColor = 'bg-red-500/20';
+          textColor = 'text-red-400';
+        } else {
+          bgColor = 'bg-yellow-500/20';
+          textColor = 'text-yellow-400';
+        }
+      } else {
+        bgColor = 'bg-blue-500/20';
+        textColor = 'text-blue-400';
+      }
+    }
+
+    return (
+      <div className={`${bgColor} ${textColor} px-3 py-2 rounded-lg text-center`}>
+        <div className="font-bold text-lg">{value ?? '--'}</div>
+        {label && <div className="text-xs opacity-75">{label}</div>}
+      </div>
+    );
+  };
+
   if (loading && !breadthData) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -91,33 +159,14 @@ export function BreadthIndicatorsView() {
     );
   }
 
-  if (error && !breadthData) {
-    return (
-      <div className="p-4">
-        <div className="p-4 bg-red-900/50 border border-red-800 rounded-lg text-red-200">
-          {error}
-        </div>
-        <button
-          onClick={handleRefresh}
-          className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="bg-gray-800 rounded-lg p-4">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h2 className="text-xl font-bold text-white">Breadth Indicators</h2>
-            <div className="flex items-center gap-4 mt-2 text-sm">
-              <span className="text-gray-400">
-                Universe: <span className="text-white font-medium">{breadthData?.universeCount || 0} stocks</span>
-              </span>
+            <h2 className="text-xl font-bold text-white">Market Breadth Dashboard</h2>
+            <div className="flex items-center gap-4 mt-2 text-sm flex-wrap">
               {breadthData?.market && (
                 <span className="text-gray-400">
                   SPY: <span className="text-white font-medium">${breadthData.market.spyValue.toFixed(2)}</span>
@@ -133,7 +182,6 @@ export function BreadthIndicatorsView() {
                     breadthData.t2108 < 30 ? 'text-green-400' :
                     'text-yellow-400'
                   }`}>{breadthData.t2108}%</span>
-                  <span className="text-gray-500 text-xs ml-1">(% &gt; 40D MA)</span>
                 </span>
               )}
             </div>
@@ -155,154 +203,173 @@ export function BreadthIndicatorsView() {
             </label>
             <button
               onClick={handleRefresh}
-              disabled={loading}
+              disabled={loading || finvizLoading}
               className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white text-sm rounded-lg transition-colors"
             >
-              {loading ? 'Loading...' : 'Refresh'}
+              {loading || finvizLoading ? 'Loading...' : 'Refresh'}
             </button>
           </div>
         </div>
 
-        {error && (
+        {(error || finvizError) && (
           <div className="mt-3 p-2 bg-red-900/30 border border-red-800 rounded text-red-300 text-sm">
-            {error}
+            {error || finvizError}
           </div>
         )}
       </div>
 
-      {/* Primary Breadth Indicators */}
-      <div className="bg-gray-800 rounded-lg p-4">
-        <h3 className="text-lg font-semibold text-white mb-4">Primary Breadth Indicators</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-700">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Up 4%+ Today</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Down 4%+ Today</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">5D Ratio</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">10D Ratio</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Up 25%+ Qtr</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Down 25%+ Qtr</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="px-4 py-4">
-                  <div className="bg-green-500/20 text-green-400 px-3 py-2 rounded-lg text-center font-bold text-lg">
-                    {breadthData?.primary.up4PlusToday ?? '--'}
+      {/* Main Content - Side by Side */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {/* LEFT SIDE: Polygon Real-Time Data */}
+        <div className="space-y-4">
+          <div className="bg-gray-800 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Real-Time Breadth</h3>
+              <span className="text-xs text-gray-500 bg-gray-700 px-2 py-1 rounded">
+                Polygon API | {breadthData?.universeCount || 0} stocks
+              </span>
+            </div>
+
+            {/* Daily Movers */}
+            <div className="mb-4">
+              <h4 className="text-sm font-medium text-gray-400 mb-2">Daily Movers (4%+ Change)</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <MetricCell value={breadthData?.primary.up4PlusToday} type="up" label="Up 4%+" />
+                <MetricCell value={breadthData?.primary.down4PlusToday} type="down" label="Down 4%+" />
+              </div>
+            </div>
+
+            {/* Rolling Ratios */}
+            <div className="mb-4">
+              <h4 className="text-sm font-medium text-gray-400 mb-2">Rolling Up/Down Ratios</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <MetricCell value={breadthData?.primary.ratio5Day} type="ratio" label="5-Day" />
+                <MetricCell value={breadthData?.primary.ratio10Day} type="ratio" label="10-Day" />
+              </div>
+            </div>
+
+            {/* Quarterly */}
+            <div className="mb-4">
+              <h4 className="text-sm font-medium text-gray-400 mb-2">Quarter Performance (63 Days)</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <MetricCell value={breadthData?.primary.up25PlusQuarter} type="up" label="Up 25%+" />
+                <MetricCell value={breadthData?.primary.down25PlusQuarter} type="down" label="Down 25%+" />
+              </div>
+            </div>
+
+            {/* Monthly */}
+            <div className="mb-4">
+              <h4 className="text-sm font-medium text-gray-400 mb-2">Month Performance (21 Days)</h4>
+              <div className="grid grid-cols-4 gap-2">
+                <MetricCell value={breadthData?.secondary.up25PlusMonth} type="up" label="Up 25%" />
+                <MetricCell value={breadthData?.secondary.down25PlusMonth} type="down" label="Dn 25%" />
+                <MetricCell value={breadthData?.secondary.up50PlusMonth} type="up" label="Up 50%" />
+                <MetricCell value={breadthData?.secondary.down50PlusMonth} type="down" label="Dn 50%" />
+              </div>
+            </div>
+
+            {/* 34-Day */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-400 mb-2">34-Day Performance</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <MetricCell value={breadthData?.secondary.up13Plus34Days} type="up" label="Up 13%+" />
+                <MetricCell value={breadthData?.secondary.down13Plus34Days} type="down" label="Down 13%+" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT SIDE: Finviz Daily Data */}
+        <div className="space-y-4">
+          <div className="bg-gray-800 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Technical Breadth</h3>
+              <span className="text-xs text-gray-500 bg-gray-700 px-2 py-1 rounded">
+                Finviz Daily | {finvizData?.universeCount || 0} stocks
+              </span>
+            </div>
+
+            {finvizLoading && !finvizData ? (
+              <div className="flex items-center justify-center h-32">
+                <div className="text-gray-400">Loading Finviz data...</div>
+              </div>
+            ) : finvizError && !finvizData ? (
+              <div className="p-4 bg-red-900/30 border border-red-800 rounded text-red-300 text-sm">
+                {finvizError}
+              </div>
+            ) : (
+              <>
+                {/* 52-Week Highs/Lows */}
+                <div className="mb-4">
+                  <h4 className="text-sm font-medium text-gray-400 mb-2">52-Week Highs & Lows</h4>
+                  <div className="grid grid-cols-3 gap-2">
+                    <MetricCell value={finvizData?.highs.new52WeekHigh} type="up" label="New Highs" />
+                    <MetricCell value={finvizData?.highs.new52WeekLow} type="down" label="New Lows" />
+                    <MetricCell value={finvizData?.highs.highLowRatio} type="ratio" label="H/L Ratio" />
                   </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="bg-red-500/20 text-red-400 px-3 py-2 rounded-lg text-center font-bold text-lg">
-                    {breadthData?.primary.down4PlusToday ?? '--'}
+                </div>
+
+                {/* RSI */}
+                <div className="mb-4">
+                  <h4 className="text-sm font-medium text-gray-400 mb-2">RSI Extremes</h4>
+                  <div className="grid grid-cols-3 gap-2">
+                    <MetricCell value={finvizData?.rsi.above70} type="down" label="RSI > 70" />
+                    <MetricCell value={finvizData?.rsi.below30} type="up" label="RSI < 30" />
+                    <MetricCell value={finvizData?.rsi.rsiRatio} type="ratio" label="OB/OS Ratio" />
                   </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className={`px-3 py-2 rounded-lg text-center font-bold text-lg ${
-                    breadthData?.primary.ratio5Day != null
-                      ? breadthData.primary.ratio5Day > 1
-                        ? 'bg-green-500/20 text-green-400'
-                        : breadthData.primary.ratio5Day < 1
-                          ? 'bg-red-500/20 text-red-400'
-                          : 'bg-yellow-500/20 text-yellow-400'
-                      : 'bg-gray-700 text-gray-500'
-                  }`}>
-                    {breadthData?.primary.ratio5Day ?? '--'}
+                </div>
+
+                {/* SMA Breadth */}
+                <div className="mb-4">
+                  <h4 className="text-sm font-medium text-gray-400 mb-2">Price vs Moving Averages</h4>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <MetricCell value={finvizData?.sma.aboveSMA20} type="up" label="> SMA 20" />
+                    <MetricCell value={finvizData?.sma.belowSMA20} type="down" label="< SMA 20" />
                   </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className={`px-3 py-2 rounded-lg text-center font-bold text-lg ${
-                    breadthData?.primary.ratio10Day != null
-                      ? breadthData.primary.ratio10Day > 1
-                        ? 'bg-green-500/20 text-green-400'
-                        : breadthData.primary.ratio10Day < 1
-                          ? 'bg-red-500/20 text-red-400'
-                          : 'bg-yellow-500/20 text-yellow-400'
-                      : 'bg-gray-700 text-gray-500'
-                  }`}>
-                    {breadthData?.primary.ratio10Day ?? '--'}
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <MetricCell value={finvizData?.sma.aboveSMA50} type="up" label="> SMA 50" />
+                    <MetricCell value={finvizData?.sma.belowSMA50} type="down" label="< SMA 50" />
                   </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="bg-green-500/20 text-green-400 px-3 py-2 rounded-lg text-center font-bold text-lg">
-                    {breadthData?.primary.up25PlusQuarter ?? '--'}
+                  <div className="grid grid-cols-2 gap-2">
+                    <MetricCell value={finvizData?.sma.aboveSMA200} type="up" label="> SMA 200" />
+                    <MetricCell value={finvizData?.sma.belowSMA200} type="down" label="< SMA 200" />
                   </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="bg-red-500/20 text-red-400 px-3 py-2 rounded-lg text-center font-bold text-lg">
-                    {breadthData?.primary.down25PlusQuarter ?? '--'}
+                </div>
+
+                {/* Trend */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-400 mb-2">Trend Signals (SMA 50/200)</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <MetricCell value={finvizData?.trend.goldenCross} type="up" label="Golden Cross" />
+                    <MetricCell value={finvizData?.trend.deathCross} type="down" label="Death Cross" />
                   </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Secondary Breadth Indicators */}
-      <div className="bg-gray-800 rounded-lg p-4">
-        <h3 className="text-lg font-semibold text-white mb-4">Secondary Breadth Indicators</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-700">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Up 25%+ Month</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Down 25%+ Month</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Up 50%+ Month</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Down 50%+ Month</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Up 13%+ 34D</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Down 13%+ 34D</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="px-4 py-4">
-                  <div className="bg-green-500/20 text-green-400 px-3 py-2 rounded-lg text-center font-bold text-lg">
-                    {breadthData?.secondary.up25PlusMonth ?? '--'}
-                  </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="bg-red-500/20 text-red-400 px-3 py-2 rounded-lg text-center font-bold text-lg">
-                    {breadthData?.secondary.down25PlusMonth ?? '--'}
-                  </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="bg-green-500/20 text-green-400 px-3 py-2 rounded-lg text-center font-bold text-lg">
-                    {breadthData?.secondary.up50PlusMonth ?? '--'}
-                  </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="bg-red-500/20 text-red-400 px-3 py-2 rounded-lg text-center font-bold text-lg">
-                    {breadthData?.secondary.down50PlusMonth ?? '--'}
-                  </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="bg-green-500/20 text-green-400 px-3 py-2 rounded-lg text-center font-bold text-lg">
-                    {breadthData?.secondary.up13Plus34Days ?? '--'}
-                  </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="bg-red-500/20 text-red-400 px-3 py-2 rounded-lg text-center font-bold text-lg">
-                    {breadthData?.secondary.down13Plus34Days ?? '--'}
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+      {/* Info Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-gray-800/50 rounded-lg p-4">
+          <h4 className="text-sm font-medium text-gray-400 mb-2">Real-Time Indicators (Polygon)</h4>
+          <ul className="text-xs text-gray-500 space-y-1">
+            <li>Updates every 5 minutes during market hours</li>
+            <li>T2108 = % above 40-day MA (<span className="text-green-400">&lt;30%</span> oversold, <span className="text-red-400">&gt;70%</span> overbought)</li>
+            <li>Rolling ratios = sum(up 4%+) / sum(down 4%+) over N days</li>
+            <li><span className="text-green-400">Green</span> = bullish, <span className="text-red-400">Red</span> = bearish, <span className="text-yellow-400">Yellow</span> = neutral</li>
+          </ul>
         </div>
-      </div>
-
-      {/* Info Card */}
-      <div className="bg-gray-800/50 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-gray-400 mb-2">About Breadth Indicators</h4>
-        <ul className="text-xs text-gray-500 space-y-1">
-          <li><span className="text-green-400">Green cells</span> = Bullish signal (stocks up by threshold, ratio &gt; 1)</li>
-          <li><span className="text-red-400">Red cells</span> = Bearish signal (stocks down by threshold, ratio &lt; 1)</li>
-          <li><span className="text-yellow-400">Yellow cells</span> = Neutral (ratio = 1)</li>
-          <li>Quarter = 63 trading days, Month = 21 trading days, 34D = 34 trading days</li>
-          <li>5D/10D Ratios = Rolling sum of (up 4%+) / (down 4%+) over past 5/10 days</li>
-          <li>T2108 = % of stocks above their 40-day moving average (<span className="text-green-400">&lt;30%</span> oversold, <span className="text-red-400">&gt;70%</span> overbought)</li>
-        </ul>
+        <div className="bg-gray-800/50 rounded-lg p-4">
+          <h4 className="text-sm font-medium text-gray-400 mb-2">Technical Indicators (Finviz)</h4>
+          <ul className="text-xs text-gray-500 space-y-1">
+            <li>Daily snapshot of entire US market (NASDAQ, NYSE, AMEX)</li>
+            <li>RSI &gt; 70 = overbought (bearish), RSI &lt; 30 = oversold (bullish)</li>
+            <li>Golden Cross = SMA50 crossed above SMA200 (bullish)</li>
+            <li>Death Cross = SMA50 crossed below SMA200 (bearish)</li>
+          </ul>
+        </div>
       </div>
     </div>
   );
