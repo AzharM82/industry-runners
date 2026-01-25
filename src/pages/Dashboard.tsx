@@ -12,6 +12,17 @@ import { BreadthIndicatorsView } from '../components/BreadthIndicatorsView';
 import { PromptRunner } from '../components/PromptRunner';
 import { useAuth, logout } from '../hooks';
 
+interface SubscriptionStatus {
+  has_access: boolean;
+  is_admin: boolean;
+  subscription: {
+    status: string;
+    current_period_end: string | null;
+    cancel_at_period_end: boolean;
+  } | null;
+  reason?: string;
+}
+
 const API_BASE = '/api';
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const MAX_RETRIES = 3;
@@ -97,6 +108,29 @@ export function Dashboard() {
   const [selectedStockDetails, setSelectedStockDetails] = useState<StockQuote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [marketOpen, setMarketOpen] = useState(isMarketOpen());
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+
+  // Check subscription status on mount
+  useEffect(() => {
+    const checkSubscription = async () => {
+      try {
+        const response = await fetch('/api/subscription-status');
+        if (response.ok) {
+          const data = await response.json();
+          setSubscriptionStatus(data);
+        } else {
+          setSubscriptionStatus({ has_access: false, is_admin: false, subscription: null, reason: 'Failed to check subscription' });
+        }
+      } catch (err) {
+        console.error('Error checking subscription:', err);
+        setSubscriptionStatus({ has_access: false, is_admin: false, subscription: null, reason: 'Network error' });
+      } finally {
+        setSubscriptionLoading(false);
+      }
+    };
+    checkSubscription();
+  }, []);
 
   // Fetch ALL quotes (swing + day trade) in one request
   const fetchAllQuotes = useCallback(async () => {
@@ -300,6 +334,71 @@ export function Dashboard() {
       second: '2-digit'
     });
   };
+
+  // Show loading while checking subscription
+  if (subscriptionLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="text-gray-400">Checking subscription...</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show subscription required page if user doesn't have access
+  if (subscriptionStatus && !subscriptionStatus.has_access) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
+        <div className="max-w-md w-full bg-gray-800 rounded-2xl p-8 text-center border border-gray-700">
+          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <span className="text-white font-bold text-2xl">S</span>
+          </div>
+          <h1 className="text-2xl font-bold text-white mb-2">Subscription Required</h1>
+          <p className="text-gray-400 mb-6">
+            Get access to AI-powered stock analysis, market insights, and more for just $6.99/month.
+          </p>
+
+          <div className="bg-gray-700/50 rounded-xl p-4 mb-6 text-left">
+            <h3 className="text-white font-semibold mb-3">What you get:</h3>
+            <ul className="space-y-2 text-sm text-gray-300">
+              <li className="flex items-center gap-2">
+                <span className="text-green-400">+</span>
+                30 ChartGPT AI analyses/month
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="text-green-400">+</span>
+                30 Deep Research reports/month
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="text-green-400">+</span>
+                30 Halal Compliance checks/month
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="text-green-400">+</span>
+                Real-time market data & analysis tools
+              </li>
+            </ul>
+          </div>
+
+          <a
+            href="/api/create-checkout-session"
+            className="block w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors mb-4"
+          >
+            Subscribe Now - $6.99/month
+          </a>
+
+          <button
+            onClick={logout}
+            className="text-sm text-gray-500 hover:text-gray-400 transition-colors"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-900">
