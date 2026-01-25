@@ -6,10 +6,11 @@ import json
 import os
 import base64
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import azure.functions as func
 import anthropic
 import redis
+import requests
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -25,6 +26,240 @@ from shared.admin import is_admin, get_monthly_limit
 # Initialize clients
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 REDIS_URL = os.environ.get('REDIS_CONNECTION_STRING')
+POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY')
+
+
+def fetch_polygon_market_data(ticker: str) -> dict:
+    """Fetch comprehensive market data from Polygon API for Deep Research analysis."""
+    if not POLYGON_API_KEY:
+        logging.warning("POLYGON_API_KEY not configured")
+        return {}
+
+    market_data = {}
+
+    try:
+        # 1. Get current snapshot (price, volume, change)
+        snapshot_url = f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}?apiKey={POLYGON_API_KEY}"
+        snapshot_resp = requests.get(snapshot_url, timeout=10)
+        if snapshot_resp.status_code == 200:
+            snapshot = snapshot_resp.json().get('ticker', {})
+            if snapshot:
+                market_data['current_price'] = snapshot.get('day', {}).get('c') or snapshot.get('prevDay', {}).get('c')
+                market_data['open'] = snapshot.get('day', {}).get('o')
+                market_data['high'] = snapshot.get('day', {}).get('h')
+                market_data['low'] = snapshot.get('day', {}).get('l')
+                market_data['volume'] = snapshot.get('day', {}).get('v')
+                market_data['prev_close'] = snapshot.get('prevDay', {}).get('c')
+                market_data['change'] = snapshot.get('todaysChange')
+                market_data['change_percent'] = snapshot.get('todaysChangePerc')
+
+        # 2. Get ticker details (market cap, shares outstanding, description)
+        details_url = f"https://api.polygon.io/v3/reference/tickers/{ticker}?apiKey={POLYGON_API_KEY}"
+        details_resp = requests.get(details_url, timeout=10)
+        if details_resp.status_code == 200:
+            details = details_resp.json().get('results', {})
+            if details:
+                market_data['company_name'] = details.get('name')
+                market_data['market_cap'] = details.get('market_cap')
+                market_data['shares_outstanding'] = details.get('share_class_shares_outstanding')
+                market_data['description'] = details.get('description', '')[:500]  # Truncate long descriptions
+                market_data['sector'] = details.get('sic_description')
+                market_data['homepage'] = details.get('homepage_url')
+                market_data['total_employees'] = details.get('total_employees')
+
+        # 3. Get 52-week high/low from aggregates
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365)
+        aggs_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}?adjusted=true&sort=asc&apiKey={POLYGON_API_KEY}"
+        aggs_resp = requests.get(aggs_url, timeout=15)
+        if aggs_resp.status_code == 200:
+            results = aggs_resp.json().get('results', [])
+            if results:
+                closes = [r.get('c') for r in results if r.get('c')]
+                highs = [r.get('h') for r in results if r.get('h')]
+                lows = [r.get('l') for r in results if r.get('l')]
+                if closes:
+                    market_data['week_52_high'] = max(highs) if highs else None
+                    market_data['week_52_low'] = min(lows) if lows else None
+                    # Calculate price performance
+                    if len(closes) > 0:
+                        market_data['ytd_return'] = ((closes[-1] - closes[0]) / closes[0] * 100) if closes[0] else None
+                    # Get prices at different intervals for context
+                    if len(closes) >= 252:
+                        market_data['price_1yr_ago'] = closes[0]
+                    if len(closes) >= 126:
+                        market_data['price_6mo_ago'] = closes[-126]
+                    if len(closes) >= 63:
+                        market_data['price_3mo_ago'] = closes[-63]
+                    if len(closes) >= 21:
+                        market_data['price_1mo_ago'] = closes[-21]
+
+        # 4. Get financials (basic metrics)
+        financials_url = f"https://api.polygon.io/vX/reference/financials?ticker={ticker}&limit=4&apiKey={POLYGON_API_KEY}"
+        fin_resp = requests.get(financials_url, timeout=10)
+        if fin_resp.status_code == 200:
+            fin_results = fin_resp.json().get('results', [])
+            if fin_results:
+                latest = fin_results[0]
+                financials = latest.get('financials', {})
+
+                # Income statement
+                income = financials.get('income_statement', {})
+                market_data['revenue'] = income.get('revenues', {}).get('value')
+                market_data['net_income'] = income.get('net_income_loss', {}).get('value')
+                market_data['gross_profit'] = income.get('gross_profit', {}).get('value')
+                market_data['operating_income'] = income.get('operating_income_loss', {}).get('value')
+                market_data['eps_diluted'] = income.get('diluted_earnings_per_share', {}).get('value')
+
+                # Balance sheet
+                balance = financials.get('balance_sheet', {})
+                market_data['total_assets'] = balance.get('assets', {}).get('value')
+                market_data['total_liabilities'] = balance.get('liabilities', {}).get('value')
+                market_data['total_equity'] = balance.get('equity', {}).get('value')
+                market_data['cash'] = balance.get('cash', {}).get('value')
+                market_data['total_debt'] = balance.get('long_term_debt', {}).get('value')
+
+                # Cash flow
+                cashflow = financials.get('cash_flow_statement', {})
+                market_data['operating_cash_flow'] = cashflow.get('net_cash_flow_from_operating_activities', {}).get('value')
+                market_data['free_cash_flow'] = cashflow.get('free_cash_flow', {}).get('value')
+
+                market_data['fiscal_period'] = latest.get('fiscal_period')
+                market_data['fiscal_year'] = latest.get('fiscal_year')
+
+        # Calculate valuation ratios if we have the data
+        if market_data.get('current_price') and market_data.get('eps_diluted') and market_data['eps_diluted'] != 0:
+            market_data['pe_ratio'] = round(market_data['current_price'] / market_data['eps_diluted'], 2)
+
+        if market_data.get('market_cap') and market_data.get('revenue') and market_data['revenue'] != 0:
+            market_data['ps_ratio'] = round(market_data['market_cap'] / market_data['revenue'], 2)
+
+        if market_data.get('market_cap') and market_data.get('total_equity') and market_data['total_equity'] != 0:
+            market_data['pb_ratio'] = round(market_data['market_cap'] / market_data['total_equity'], 2)
+
+        logging.info(f"Fetched market data for {ticker}: {len(market_data)} fields")
+
+    except Exception as e:
+        logging.error(f"Error fetching Polygon data for {ticker}: {e}")
+
+    return market_data
+
+
+def format_market_data_for_prompt(ticker: str, data: dict) -> str:
+    """Format market data as a structured string for the AI prompt."""
+    if not data:
+        return f"Note: Unable to fetch real-time market data for {ticker}. Please use your knowledge to provide estimates."
+
+    def fmt_num(val, prefix='$', suffix='', decimals=2):
+        if val is None:
+            return 'N/A'
+        if abs(val) >= 1e12:
+            return f"{prefix}{val/1e12:.{decimals}f}T{suffix}"
+        if abs(val) >= 1e9:
+            return f"{prefix}{val/1e9:.{decimals}f}B{suffix}"
+        if abs(val) >= 1e6:
+            return f"{prefix}{val/1e6:.{decimals}f}M{suffix}"
+        return f"{prefix}{val:,.{decimals}f}{suffix}"
+
+    lines = [
+        f"=== REAL-TIME MARKET DATA FOR {ticker} (as of {datetime.now().strftime('%Y-%m-%d')}) ===",
+        ""
+    ]
+
+    # Company info
+    if data.get('company_name'):
+        lines.append(f"Company: {data['company_name']}")
+    if data.get('sector'):
+        lines.append(f"Sector: {data['sector']}")
+    if data.get('total_employees'):
+        lines.append(f"Employees: {data['total_employees']:,}")
+
+    lines.append("")
+    lines.append("--- PRICE DATA ---")
+    if data.get('current_price'):
+        lines.append(f"Current Price: ${data['current_price']:.2f}")
+    if data.get('change') is not None and data.get('change_percent') is not None:
+        sign = '+' if data['change'] >= 0 else ''
+        lines.append(f"Today's Change: {sign}${data['change']:.2f} ({sign}{data['change_percent']:.2f}%)")
+    if data.get('week_52_high') and data.get('week_52_low'):
+        lines.append(f"52-Week Range: ${data['week_52_low']:.2f} - ${data['week_52_high']:.2f}")
+
+    # Price performance
+    if data.get('current_price'):
+        lines.append("")
+        lines.append("--- PRICE PERFORMANCE ---")
+        if data.get('price_1mo_ago'):
+            pct = (data['current_price'] - data['price_1mo_ago']) / data['price_1mo_ago'] * 100
+            lines.append(f"1-Month Return: {pct:+.1f}%")
+        if data.get('price_3mo_ago'):
+            pct = (data['current_price'] - data['price_3mo_ago']) / data['price_3mo_ago'] * 100
+            lines.append(f"3-Month Return: {pct:+.1f}%")
+        if data.get('price_6mo_ago'):
+            pct = (data['current_price'] - data['price_6mo_ago']) / data['price_6mo_ago'] * 100
+            lines.append(f"6-Month Return: {pct:+.1f}%")
+        if data.get('price_1yr_ago'):
+            pct = (data['current_price'] - data['price_1yr_ago']) / data['price_1yr_ago'] * 100
+            lines.append(f"1-Year Return: {pct:+.1f}%")
+
+    lines.append("")
+    lines.append("--- VALUATION ---")
+    if data.get('market_cap'):
+        lines.append(f"Market Cap: {fmt_num(data['market_cap'])}")
+    if data.get('pe_ratio'):
+        lines.append(f"P/E Ratio: {data['pe_ratio']:.1f}x")
+    if data.get('ps_ratio'):
+        lines.append(f"P/S Ratio: {data['ps_ratio']:.1f}x")
+    if data.get('pb_ratio'):
+        lines.append(f"P/B Ratio: {data['pb_ratio']:.1f}x")
+
+    lines.append("")
+    lines.append("--- FINANCIALS (Most Recent Quarter) ---")
+    if data.get('fiscal_period') and data.get('fiscal_year'):
+        lines.append(f"Period: {data['fiscal_period']} {data['fiscal_year']}")
+    if data.get('revenue'):
+        lines.append(f"Revenue: {fmt_num(data['revenue'])}")
+    if data.get('gross_profit'):
+        lines.append(f"Gross Profit: {fmt_num(data['gross_profit'])}")
+        if data.get('revenue'):
+            margin = data['gross_profit'] / data['revenue'] * 100
+            lines.append(f"Gross Margin: {margin:.1f}%")
+    if data.get('operating_income'):
+        lines.append(f"Operating Income: {fmt_num(data['operating_income'])}")
+        if data.get('revenue'):
+            margin = data['operating_income'] / data['revenue'] * 100
+            lines.append(f"Operating Margin: {margin:.1f}%")
+    if data.get('net_income'):
+        lines.append(f"Net Income: {fmt_num(data['net_income'])}")
+        if data.get('revenue'):
+            margin = data['net_income'] / data['revenue'] * 100
+            lines.append(f"Net Margin: {margin:.1f}%")
+    if data.get('eps_diluted'):
+        lines.append(f"EPS (Diluted): ${data['eps_diluted']:.2f}")
+
+    lines.append("")
+    lines.append("--- BALANCE SHEET ---")
+    if data.get('cash'):
+        lines.append(f"Cash & Equivalents: {fmt_num(data['cash'])}")
+    if data.get('total_debt'):
+        lines.append(f"Total Debt: {fmt_num(data['total_debt'])}")
+    if data.get('total_assets'):
+        lines.append(f"Total Assets: {fmt_num(data['total_assets'])}")
+    if data.get('total_equity'):
+        lines.append(f"Total Equity: {fmt_num(data['total_equity'])}")
+
+    lines.append("")
+    lines.append("--- CASH FLOW ---")
+    if data.get('operating_cash_flow'):
+        lines.append(f"Operating Cash Flow: {fmt_num(data['operating_cash_flow'])}")
+    if data.get('free_cash_flow'):
+        lines.append(f"Free Cash Flow: {fmt_num(data['free_cash_flow'])}")
+
+    lines.append("")
+    lines.append("=" * 60)
+    lines.append("")
+    lines.append("Use this data to provide specific price targets and valuation analysis.")
+
+    return "\n".join(lines)
 
 # Prompt files content (loaded at startup)
 PROMPTS = {}
@@ -267,7 +502,15 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         if prompt_type == 'chartgpt':
             user_text = f"CHARTGPT: Analyze this chart for {ticker}. Provide a comprehensive technical analysis with entry/exit points."
         elif prompt_type == 'deep-research':
-            user_text = f"Analyze {ticker}"
+            # Fetch real market data from Polygon for Deep Research
+            logging.info(f"Fetching Polygon market data for {ticker}")
+            market_data = fetch_polygon_market_data(ticker)
+            market_data_text = format_market_data_for_prompt(ticker, market_data)
+            user_text = f"""Analyze {ticker}
+
+{market_data_text}
+
+Based on the market data above, provide a comprehensive 13-point equity research analysis. Use the actual numbers provided to calculate specific price targets (Bear Case / Base Case / Bull Case) based on valuation multiples and DCF considerations."""
         elif prompt_type == 'halal':
             user_text = f"Check the Halal Status for {ticker}"
         else:
