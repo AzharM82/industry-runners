@@ -1,0 +1,111 @@
+# Halal Stock Compliance Checker Prompt
+
+Use this prompt to analyze any stock for Shariah compliance according to AAOIFI standards:
+
+---
+
+## Prompt Template:
+
+**Analyze [STOCK TICKER: Company Name] for Islamic finance (halal) compliance using AAOIFI standards. Please verify the following criteria and provide specific calculations:**
+
+### **REQUIRED ANALYSIS:**
+
+**1. BUSINESS ACTIVITIES SCREENING (Qualitative)**
+- What is the company's primary business/industry?
+- Does the company engage in any prohibited (haram) activities?
+- Prohibited sectors include: alcohol, gambling, pornography, conventional banking, insurance, pork products, tobacco, weapons, adult entertainment
+- What percentage of revenue (if any) comes from questionable/prohibited sources?
+
+**2. FINANCIAL RATIOS SCREENING (Quantitative)**
+
+**A. Debt-to-Market Cap Ratio:**
+- Find: Total interest-bearing debt (long-term + short-term debt)
+- Find: Current market capitalization (stock price × shares outstanding)
+- Calculate: (Total Debt ÷ Market Cap) × 100
+- AAOIFI Threshold: Must be ≤ 30%
+- Status: Pass/Fail
+
+**B. Interest Income Ratio:**
+- Find: Most recent quarterly interest income amount (from investments, bank deposits, etc.)
+- Find: Current year revenue expectations (based on latest quarterly results and guidance)
+- Calculate: (Latest Quarterly Interest Income × 4 ÷ Expected Annual Revenue) × 100
+- AAOIFI Threshold: Must be ≤ 5%
+- Status: Pass/Fail
+- Note: Use most recent quarterly data and forward-looking revenue projections for current compliance assessment
+
+**3. DATA SOURCES TO CHECK:**
+- Latest 10-K annual report
+- Recent quarterly earnings reports (10-Q)
+- Current stock price and market data
+- Income statement for interest income details
+- Balance sheet for debt information
+
+**4. VERIFICATION WITH ISLAMIC FINANCE PLATFORMS:**
+- Check compliance status on: Zoya Finance, Islamicly, Musaffa, Muslim Xchange
+- Note any discrepancies between platforms
+- Provide screenshots or direct quotes from these platforms
+
+**5. FINAL ASSESSMENT:**
+- Overall Shariah Compliance Status: Halal/Haram
+- Primary reasons for pass/fail
+- Specific recommendations for Muslim investors
+- If compliant but has impermissible income <5%, calculate dividend purification percentage
+
+**6. INDUSTRY ALTERNATIVES:**
+- Research 3 stocks from the same industry/sector as the analyzed company
+- Provide: Company Name, Ticker Symbol, and 50-day Average Volume
+- Note: These are for informational purposes only, not investment recommendations
+
+### **OUTPUT FORMAT:**
+
+```
+COMPANY: [Name] ([Ticker])
+REPORT DATE: [Date]
+
+BUSINESS SCREENING: ✅ PASS / ❌ FAIL
+- Primary Business: [Description]
+- Prohibited Activities: [None/List]
+- Revenue from Haram Sources: [%]
+
+FINANCIAL SCREENING:
+1. Debt-to-Market Cap: [X.XX%] - ✅ PASS / ❌ FAIL
+   - Total Debt: $[Amount]
+   - Market Cap: $[Amount]
+   - Threshold: 30%
+
+2. Interest Income Ratio: [X.XX%] - ✅ PASS / ❌ FAIL
+   - Interest Income: $[Amount]
+   - Total Revenue: $[Amount]
+   - Threshold: 5%
+
+PLATFORM VERIFICATION:
+- Zoya Finance: [Compliant/Non-compliant]
+- Islamicly: [Compliant/Non-compliant]
+- Musaffa: [Compliant/Non-compliant]
+- Muslim Xchange: [Compliant/Non-compliant]
+
+INDUSTRY ALTERNATIVES:
+- [Company Name 1] ([Ticker]) - 50-day Avg Volume: [Volume]
+- [Company Name 2] ([Ticker]) - 50-day Avg Volume: [Volume]  
+- [Company Name 3] ([Ticker]) - 50-day Avg Volume: [Volume]
+
+FINAL VERDICT: ✅ HALAL / ❌ HARAM
+REASON: [Primary compliance issue if failed]
+
+RECOMMENDATION FOR MUSLIM INVESTORS:
+[Specific guidance based on analysis]
+```
+
+### **EXAMPLE USAGE:**
+"Analyze AAPL: Apple Inc. for Islamic finance (halal) compliance using AAOIFI standards..."
+
+### **IMPORTANT NOTES:**
+- Use latest available financial data (within 12 months)
+- If exact figures unavailable, clearly state limitations
+- Cross-reference multiple Islamic finance platforms for verification (Zoya, Islamicly, Musaffa, Muslim Xchange)
+- Provide specific dollar amounts and percentages, not just ratios
+- Explain purification requirements if stock passes but has <5% impermissible income
+
+---
+
+**When you say "Check the Halal Status for [stock name/ticker]", I will run this comprehensive analysis using all four major Islamic finance platforms for the most accurate compliance assessment.**

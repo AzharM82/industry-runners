@@ -1,56 +1,73 @@
 {
   "globalHeaders": {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type"
+  },
+  "auth": {
+    "identityProviders": {
+      "google": {
+        "registration": {
+          "clientIdSettingName": "GOOGLE_CLIENT_ID",
+          "clientSecretSettingName": "GOOGLE_CLIENT_SECRET"
+        }
+      }
+    }
   },
   "routes": [
     {
-      "route": "/.auth/login/github",
-      "statusCode": 404
+      "route": "/",
+      "allowedRoles": ["anonymous", "authenticated"]
     },
     {
-      "route": "/.auth/login/twitter",
-      "statusCode": 404
+      "route": "/pricing",
+      "allowedRoles": ["anonymous", "authenticated"]
     },
     {
       "route": "/login",
-      "rewrite": "/.auth/login/aad",
-      "allowedRoles": ["anonymous"]
+      "rewrite": "/.auth/login/google?post_login_redirect_uri=/dashboard"
     },
     {
-      "route": "/.auth/login/aad",
-      "allowedRoles": ["anonymous"]
+      "route": "/logout",
+      "redirect": "/.auth/logout?post_logout_redirect_uri=/"
     },
     {
-      "route": "/.auth/logout",
-      "allowedRoles": ["anonymous", "authenticated"]
+      "route": "/dashboard",
+      "allowedRoles": ["authenticated"]
     },
     {
-      "route": "/unauthorized.html",
-      "allowedRoles": ["anonymous", "authenticated"]
+      "route": "/dashboard/*",
+      "allowedRoles": ["authenticated"]
+    },
+    {
+      "route": "/account",
+      "allowedRoles": ["authenticated"]
+    },
+    {
+      "route": "/api/create-checkout-session",
+      "allowedRoles": ["authenticated"]
+    },
+    {
+      "route": "/api/subscription-status",
+      "allowedRoles": ["authenticated"]
+    },
+    {
+      "route": "/api/run-prompt",
+      "allowedRoles": ["authenticated"]
     },
     {
       "route": "/api/*",
       "allowedRoles": ["anonymous", "authenticated"]
-    },
-    {
-      "route": "/*",
-      "allowedRoles": ["admin"]
     }
   ],
   "responseOverrides": {
     "401": {
-      "redirect": "/.auth/login/aad?post_login_redirect_uri=/",
+      "redirect": "/login",
       "statusCode": 302
-    },
-    "403": {
-      "rewrite": "/unauthorized.html",
-      "statusCode": 403
     }
   },
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/api/*", "*.{css,js,svg,png,jpg,ico}"]
+    "exclude": ["/api/*", "*.{css,js,svg,png,jpg,ico,json}"]
   }
 }

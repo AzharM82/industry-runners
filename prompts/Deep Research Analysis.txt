@@ -1,0 +1,116 @@
+# Equity Research Analysis Prompt
+
+## Instructions
+
+When analyzing a stock, conduct comprehensive research using factual sources (annual reports, SEC filings, earnings transcripts, reputable financial data) and deliver an institutional-quality investment analysis using the 13-point framework below. Be analytical, concise, and investor-focused.
+
+---
+
+## 13-Point Analytical Framework
+
+### 1. Executive Summary
+- One-paragraph overview of the business
+- Current financial status (revenue, profitability, market cap)
+- Investment thesis in one line
+- Investment recommendation with position sizing guidance
+- Price targets: Bear Case / Base Case / Bull Case
+
+### 2. What They Sell and Who Buys
+- Products and services offered
+- Target customers and end markets
+- Customer pain points being addressed
+- Key customer relationships and contracts
+
+### 3. Revenue Model (How They Make Money)
+- Revenue streams and business model
+- Pricing logic and structure
+- Contract types (recurring vs. one-time)
+- Revenue mix breakdown
+
+### 4. Revenue Quality
+- Predictability and visibility
+- Customer concentration risk
+- Geographic concentration
+- Economic cyclicality
+- Revenue diversification
+
+### 5. Cost Structure
+- Fixed vs. variable cost breakdown
+- Current margins (gross, operating, net)
+- Operating leverage characteristics
+- Scalability of cost structure
+
+### 6. Capital Intensity
+- Assets required to operate
+- Capital expenditure requirements
+- Working capital needs
+- Cash conversion characteristics
+- Return on invested capital (ROIC)
+
+### 7. Growth Drivers
+- Primary structural growth drivers
+- Company-specific catalysts
+- Cyclical/short-term factors
+- Total addressable market (TAM)
+
+### 8. Competitive Edge (Moat Analysis)
+- Sources of competitive advantage
+- Barriers to entry
+- Pricing power assessment
+- Moat durability evaluation
+- Financial evidence (ROIC, ROA, ROE trends)
+
+### 9. Industry Structure and Position
+- Industry value chain and profit pools
+- Market structure and concentration
+- Regulatory factors
+- Company's position within industry
+- Key competitors and competitive dynamics
+
+### 10. Unit Economics and Key KPIs
+- Unit economics breakdown
+- Key performance indicators to monitor
+- Trend analysis of critical metrics
+- Benchmarking vs. peers
+
+### 11. Capital Allocation and Balance Sheet
+- Historical capital allocation decisions
+- Balance sheet strength (cash, debt, equity)
+- Major obligations and commitments
+- Management track record on capital deployment
+- Dividend/buyback policies
+
+### 12. Risk Assessment
+- Critical risks (ranked by severity)
+- Execution risks
+- Financial/liquidity risks
+- Regulatory/political risks
+- Competitive threats
+- Failure mode analysis
+
+### 13. Valuation and Catalysts
+- Current valuation metrics (P/E, P/S, EV/EBITDA, etc.)
+- Peer comparison
+- Historical valuation range
+- Near-term catalysts (0-6 months)
+- Medium-term catalysts (6-18 months)
+- Long-term/slow-building catalysts
+- Time horizon for value recognition
+- Return scenario analysis
+
+---
+
+## Output Guidelines
+
+1. **Use factual sources only** - Annual reports, 10-K/10-Q filings, earnings transcripts, reputable financial databases
+2. **Be analytical, not promotional** - Present balanced view with both bull and bear cases
+3. **Quantify everything possible** - Use specific numbers, percentages, and metrics
+4. **Provide actionable conclusions** - Clear investment recommendation with position sizing
+5. **Identify key uncertainties** - What must go right/wrong for the thesis to play out
+6. **Time-stamp the analysis** - Note what information is current vs. may be stale
+
+---
+
+## Trigger
+
+When user says **"Analyze [StockName]"** or **"Analyze $[TICKER]"**, apply this complete framework to deliver a comprehensive equity research report.
