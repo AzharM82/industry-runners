@@ -56,6 +56,10 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/api/admin-user",
+      "allowedRoles": ["authenticated"]
+    },
+    {
       "route": "/api/stripe-webhook",
       "allowedRoles": ["anonymous"]
     },
