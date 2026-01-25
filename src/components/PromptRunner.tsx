@@ -86,6 +86,7 @@ export function PromptRunner() {
   const [chartImage, setChartImage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isBeta, setIsBeta] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(false);
   const [usage, setUsage] = useState<PromptUsage>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -124,6 +125,9 @@ export function PromptRunner() {
       .then(data => {
         if (data.is_admin) {
           setIsAdmin(true);
+        }
+        if (data.is_beta) {
+          setIsBeta(true);
         }
         if (data.usage) {
           setUsage(data.usage);
@@ -452,7 +456,11 @@ export function PromptRunner() {
           if (data.code === 'NO_SUBSCRIPTION') {
             setError('Active subscription required. Please subscribe to use this feature.');
           } else if (data.code === 'LIMIT_REACHED') {
-            setError(`Monthly limit reached (${data.limit} prompts). Limit resets next month.`);
+            if (data.is_beta) {
+              setError(`Beta limit reached (${data.limit} free prompts). Subscribe for 30 prompts/month!`);
+            } else {
+              setError(`Monthly limit reached (${data.limit} prompts). Limit resets next month.`);
+            }
           } else {
             setError(data.error || 'Failed to run analysis');
           }
@@ -486,6 +494,24 @@ export function PromptRunner() {
 
   return (
     <div className="space-y-6">
+      {/* Beta Mode Banner */}
+      {isBeta && (
+        <div className="bg-gradient-to-r from-purple-900/40 to-pink-900/40 border border-purple-500/50 rounded-xl p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-purple-500/30 rounded-full flex items-center justify-center">
+              <span className="text-xl">🚀</span>
+            </div>
+            <div>
+              <div className="font-semibold text-purple-300">Beta Testing Mode</div>
+              <div className="text-sm text-gray-400">
+                Welcome! You have <span className="text-purple-300 font-medium">3 free prompts</span> per analysis type to try out our AI tools.
+                Full access with 30 prompts/month coming soon!
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Prompt Type Selection */}
       <div>
         <h3 className="text-lg font-semibold text-white mb-4">Select Analysis Type</h3>
@@ -526,7 +552,7 @@ export function PromptRunner() {
                 <div className="text-sm text-gray-400 mt-1">{prompt.description}</div>
                 {isLimitReached && (
                   <div className="text-xs text-red-400 mt-2">
-                    Monthly limit reached
+                    {isBeta ? 'Beta limit reached' : 'Monthly limit reached'}
                   </div>
                 )}
               </button>
@@ -728,7 +754,7 @@ export function PromptRunner() {
                 </span>
               )}
               <span className="text-xs text-gray-500">
-                {result.usage.used} / {result.usage.limit} used this month
+                {result.usage.used} / {result.usage.limit} {isBeta ? 'beta prompts used' : 'used this month'}
               </span>
               <button
                 onClick={downloadPdf}

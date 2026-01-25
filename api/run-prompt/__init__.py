@@ -21,7 +21,7 @@ from shared.database import (
     record_usage,
     init_schema
 )
-from shared.admin import is_admin, get_monthly_limit
+from shared.admin import is_admin, get_monthly_limit, is_beta_mode
 
 # Initialize clients
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
@@ -404,12 +404,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         # Check access
         admin = is_admin(user_email)
+        beta_mode = is_beta_mode()
         monthly_limit = get_monthly_limit(user_email)
         month_year = datetime.now().strftime('%Y-%m')
 
         if not admin:
             # Get user from database
             user = get_user_by_email(user_email)
+
+            # In beta mode, create user if doesn't exist
+            if not user and beta_mode:
+                from shared.database import get_or_create_user
+                user = get_or_create_user(user_email, user_email.split('@')[0])
+
             if not user:
                 return func.HttpResponse(
                     json.dumps({
@@ -420,17 +427,18 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     mimetype='application/json'
                 )
 
-            # Check subscription
-            subscription = get_subscription(str(user['id']))
-            if not subscription:
-                return func.HttpResponse(
-                    json.dumps({
-                        'error': 'Active subscription required',
-                        'code': 'NO_SUBSCRIPTION'
-                    }),
-                    status_code=403,
-                    mimetype='application/json'
-                )
+            # Check subscription (skip in beta mode)
+            if not beta_mode:
+                subscription = get_subscription(str(user['id']))
+                if not subscription:
+                    return func.HttpResponse(
+                        json.dumps({
+                            'error': 'Active subscription required',
+                            'code': 'NO_SUBSCRIPTION'
+                        }),
+                        status_code=403,
+                        mimetype='application/json'
+                    )
 
             user_id = str(user['id'])
         else:
@@ -442,12 +450,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Check usage limit
         usage_count = get_usage_count(user_id, prompt_type, month_year)
         if usage_count >= monthly_limit:
+            error_msg = f'Beta limit reached ({monthly_limit} free prompts)' if beta_mode else f'Monthly limit reached ({monthly_limit} prompts)'
             return func.HttpResponse(
                 json.dumps({
-                    'error': f'Monthly limit reached ({monthly_limit} prompts)',
+                    'error': error_msg,
                     'code': 'LIMIT_REACHED',
                     'usage': usage_count,
-                    'limit': monthly_limit
+                    'limit': monthly_limit,
+                    'is_beta': beta_mode
                 }),
                 status_code=429,
                 mimetype='application/json'

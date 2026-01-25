@@ -11,7 +11,7 @@ import azure.functions as func
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.database import get_user_by_email, get_subscription, get_usage_count, init_schema
-from shared.admin import is_admin, get_monthly_limit
+from shared.admin import is_admin, get_monthly_limit, is_beta_mode, BETA_PROMPT_LIMIT
 
 
 def get_user_from_auth(req):
@@ -58,8 +58,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype='application/json'
             )
 
-        # Get user from database
+        # Get or create user in database
+        from shared.database import get_or_create_user
         user = get_user_by_email(user_email)
+
+        # In beta mode, create user if doesn't exist
+        if not user and is_beta_mode():
+            user = get_or_create_user(user_email, user_email.split('@')[0])
+
         if not user:
             return func.HttpResponse(
                 json.dumps({
@@ -73,7 +79,12 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         # Get subscription
         subscription = get_subscription(str(user['id']))
-        has_access = subscription is not None
+
+        # In beta mode, everyone has access (subscription not required)
+        if is_beta_mode():
+            has_access = True
+        else:
+            has_access = subscription is not None
 
         # Get usage for current month
         from datetime import datetime
@@ -91,6 +102,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         response = {
             'has_access': has_access,
             'is_admin': False,
+            'is_beta': is_beta_mode(),
             'subscription': {
                 'status': subscription['status'] if subscription else None,
                 'current_period_end': subscription['current_period_end'].isoformat() if subscription and subscription.get('current_period_end') else None,
@@ -99,8 +111,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             'usage': usage
         }
 
-        if not has_access:
+        # Add reason if no access (only when not in beta mode)
+        if not has_access and not is_beta_mode():
             response['reason'] = 'No active subscription'
+
+        # Add beta message
+        if is_beta_mode():
+            response['beta_message'] = f'Beta testing mode - {BETA_PROMPT_LIMIT} free prompts per analysis type'
 
         return func.HttpResponse(
             json.dumps(response),
