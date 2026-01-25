@@ -9,6 +9,7 @@ import { MarketIndices } from '../components/MarketIndices';
 import { StockAnalysisView } from '../components/StockAnalysisView';
 import { FocusStocksView } from '../components/FocusStocksView';
 import { BreadthIndicatorsView } from '../components/BreadthIndicatorsView';
+import { TradeManagementView } from '../components/TradeManagementView';
 import { PromptRunner } from '../components/PromptRunner';
 import { useAuth, logout } from '../hooks';
 
@@ -95,7 +96,7 @@ function getAllSymbols(): string[] {
   return Array.from(symbols);
 }
 
-type DashboardType = 'ai-analysis' | 'analysis' | 'focus' | 'breadth' | 'swing' | 'daytrade';
+type DashboardType = 'ai-analysis' | 'analysis' | 'focus' | 'breadth' | 'swing' | 'daytrade' | 'trade-management';
 
 export function Dashboard() {
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
@@ -549,6 +550,16 @@ export function Dashboard() {
             >
               Day Trading
             </button>
+            <button
+              onClick={() => setActiveTab('trade-management')}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
+                activeTab === 'trade-management'
+                  ? 'bg-gray-800 text-white border-t border-l border-r border-gray-700'
+                  : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800/50'
+              }`}
+            >
+              Trade Management
+            </button>
           </div>
         </div>
       </header>
@@ -582,6 +593,9 @@ export function Dashboard() {
         ) : activeTab === 'breadth' ? (
           // Breadth Indicators Dashboard
           <BreadthIndicatorsView />
+        ) : activeTab === 'trade-management' ? (
+          // Trade Management Dashboard
+          <TradeManagementView />
         ) : activeTab === 'swing' ? (
           // Swing Trading Dashboard
           loading && etfData.length === 0 ? (
