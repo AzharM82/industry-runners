@@ -1,265 +1,296 @@
-import { useState, useMemo, useEffect } from 'react';
-import { TrendingUp, Plus, Trash2, DollarSign, Target, Calendar, BarChart3 } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { TrendingUp, Plus, Trash2, DollarSign, Calendar, RefreshCw } from 'lucide-react';
 
-interface Installment {
-  quarter: number;
-  amount: number;
+interface MonthlyBuy {
+  month: string; // YYYY-MM format
+  date: string; // actual purchase date
   shares: number;
   pricePerShare: number;
-  date: string;
+  amount: number;
+  locked: boolean;
 }
 
-interface Position {
+interface Stock {
   id: number;
   ticker: string;
   name: string;
-  startQuarter: number;
-  installments: Installment[];
+  addedQuarter: string; // e.g., "Q1 2026"
+  addedMonth: string; // YYYY-MM format (first month)
   currentPrice: number;
+  monthlyBuys: MonthlyBuy[];
 }
 
 interface Settings {
-  totalCapital: number;
-  startDate: string;
-  currentQuarter: number;
+  monthlyInvestment: number;
+  startDate: string; // "2026-01"
+  endDate: string; // "2028-12"
 }
 
-interface NewPosition {
-  ticker: string;
-  name: string;
-  startQuarter: number;
-  amount: number;
-  shares: number | string;
-  pricePerShare: number | string;
-  currentPrice: number | string;
+const STORAGE_KEY = 'multiBaggerTracker:v2';
+
+// Generate all months from start to end
+function generateMonths(startDate: string, endDate: string): string[] {
+  const months: string[] = [];
+  const [startYear, startMonth] = startDate.split('-').map(Number);
+  const [endYear, endMonth] = endDate.split('-').map(Number);
+
+  let year = startYear;
+  let month = startMonth;
+
+  while (year < endYear || (year === endYear && month <= endMonth)) {
+    months.push(`${year}-${String(month).padStart(2, '0')}`);
+    month++;
+    if (month > 12) {
+      month = 1;
+      year++;
+    }
+  }
+  return months;
 }
 
-const STORAGE_KEY = 'investmentTracker:v1';
+// Get quarter string from month
+function getQuarter(monthStr: string): string {
+  const [year, month] = monthStr.split('-').map(Number);
+  const q = Math.ceil(month / 3);
+  return `Q${q} ${year}`;
+}
+
+// Get all quarters from start to end
+function generateQuarters(startDate: string, endDate: string): string[] {
+  const quarters: string[] = [];
+  const months = generateMonths(startDate, endDate);
+
+  months.forEach(m => {
+    const q = getQuarter(m);
+    if (!quarters.includes(q)) {
+      quarters.push(q);
+    }
+  });
+  return quarters;
+}
+
+// Format month for display
+function formatMonth(monthStr: string): string {
+  const [year, month] = monthStr.split('-').map(Number);
+  const date = new Date(year, month - 1, 1);
+  return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
+// Get current month string
+function getCurrentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
 
 export function InvestmentTrackerView() {
-  const [positions, setPositions] = useState<Position[]>([]);
+  const [stocks, setStocks] = useState<Stock[]>([]);
   const [settings, setSettings] = useState<Settings>({
-    totalCapital: 240000,
-    startDate: '2025-01-01',
-    currentQuarter: 1
+    monthlyInvestment: 5000,
+    startDate: '2026-01',
+    endDate: '2028-12'
   });
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newPosition, setNewPosition] = useState<NewPosition>({
+  const [showBuyModal, setShowBuyModal] = useState<{ stock: Stock; month: string } | null>(null);
+  const [newStock, setNewStock] = useState({
     ticker: '',
     name: '',
-    startQuarter: 1,
-    amount: 6667,
+    quarter: '',
     shares: '',
     pricePerShare: '',
     currentPrice: ''
   });
+  const [buyForm, setBuyForm] = useState({
+    shares: '',
+    pricePerShare: '',
+    date: new Date().toISOString().split('T')[0]
+  });
 
-  // Load data from localStorage on mount
+  const allMonths = useMemo(() => generateMonths(settings.startDate, settings.endDate), [settings.startDate, settings.endDate]);
+  const allQuarters = useMemo(() => generateQuarters(settings.startDate, settings.endDate), [settings.startDate, settings.endDate]);
+
+  // Load data from localStorage
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const data = JSON.parse(saved);
-        if (data.positions) setPositions(data.positions);
+        if (data.stocks) setStocks(data.stocks);
         if (data.settings) setSettings(data.settings);
       }
     } catch (e) {
-      console.error('Error loading investment data:', e);
+      console.error('Error loading data:', e);
     }
   }, []);
 
-  // Save data to localStorage whenever it changes
+  // Save data to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ positions, settings }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ stocks, settings }));
     } catch (e) {
-      console.error('Error saving investment data:', e);
+      console.error('Error saving data:', e);
     }
-  }, [positions, settings]);
+  }, [stocks, settings]);
+
+  // Check which quarters already have a stock
+  const usedQuarters = useMemo(() => {
+    return stocks.map(s => s.addedQuarter);
+  }, [stocks]);
+
+  // Get available quarters for new stock
+  const availableQuarters = useMemo(() => {
+    return allQuarters.filter(q => !usedQuarters.includes(q));
+  }, [allQuarters, usedQuarters]);
 
   // Calculate portfolio metrics
   const portfolioMetrics = useMemo(() => {
     let totalInvested = 0;
     let totalCurrentValue = 0;
-    const multiBaggers = { threeX: 0, fiveX: 0, tenX: 0 };
 
-    positions.forEach(pos => {
-      const invested = pos.installments.reduce((sum, inst) => sum + inst.amount, 0);
-      const totalShares = pos.installments.reduce((sum, inst) => sum + inst.shares, 0);
-      const currentValue = totalShares * pos.currentPrice;
+    stocks.forEach(stock => {
+      const invested = stock.monthlyBuys.reduce((sum, buy) => sum + buy.amount, 0);
+      const totalShares = stock.monthlyBuys.reduce((sum, buy) => sum + buy.shares, 0);
+      const currentValue = totalShares * stock.currentPrice;
 
       totalInvested += invested;
       totalCurrentValue += currentValue;
-
-      const multiple = invested > 0 ? currentValue / invested : 0;
-      if (multiple >= 10) multiBaggers.tenX++;
-      else if (multiple >= 5) multiBaggers.fiveX++;
-      else if (multiple >= 3) multiBaggers.threeX++;
     });
 
     const profit = totalCurrentValue - totalInvested;
     const returnPct = totalInvested > 0 ? (profit / totalInvested) * 100 : 0;
-    const multiple = totalInvested > 0 ? totalCurrentValue / totalInvested : 0;
-    const deployedPct = settings.totalCapital > 0 ? (totalInvested / settings.totalCapital) * 100 : 0;
 
-    return {
-      totalInvested,
-      totalCurrentValue,
-      profit,
-      returnPct,
-      multiple,
-      deployedPct,
-      multiBaggers
-    };
-  }, [positions, settings.totalCapital]);
+    return { totalInvested, totalCurrentValue, profit, returnPct };
+  }, [stocks]);
 
-  // Generate investment schedule
-  const investmentSchedule = useMemo(() => {
-    const schedule = [];
-    for (let q = 1; q <= 12; q++) {
-      const quarter = {
-        quarter: q,
-        year: Math.ceil(q / 4),
-        actions: [] as { type: string; ticker: string; amount: number; installment?: number }[],
-        totalAmount: 0
-      };
+  // Get stock details
+  const getStockDetails = useCallback((stock: Stock) => {
+    const totalShares = stock.monthlyBuys.reduce((sum, buy) => sum + buy.shares, 0);
+    const totalInvested = stock.monthlyBuys.reduce((sum, buy) => sum + buy.amount, 0);
+    const avgPrice = totalShares > 0 ? totalInvested / totalShares : 0;
+    const currentValue = totalShares * stock.currentPrice;
+    const profit = currentValue - totalInvested;
+    const returnPct = totalInvested > 0 ? (profit / totalInvested) * 100 : 0;
 
-      // Check for new positions starting this quarter
-      const newPos = positions.filter(p => p.startQuarter === q);
-      newPos.forEach(pos => {
-        quarter.actions.push({
-          type: 'new',
-          ticker: pos.ticker,
-          amount: 6667
-        });
-        quarter.totalAmount += 6667;
-      });
+    // Calculate remaining months for this stock
+    const stockMonths = allMonths.filter(m => m >= stock.addedMonth);
+    const completedMonths = stock.monthlyBuys.length;
+    const remainingMonths = stockMonths.length - completedMonths;
 
-      // Check for existing positions to add to
-      positions.forEach(pos => {
-        const quartersSinceStart = q - pos.startQuarter;
-        if (quartersSinceStart > 0 && quartersSinceStart < 3) {
-          quarter.actions.push({
-            type: 'add',
-            ticker: pos.ticker,
-            amount: 6667,
-            installment: quartersSinceStart + 1
+    return { totalShares, totalInvested, avgPrice, currentValue, profit, returnPct, remainingMonths, stockMonths };
+  }, [allMonths]);
+
+  // Generate upcoming investments table
+  const upcomingInvestments = useMemo(() => {
+    const upcoming: { month: string; investments: { ticker: string; stockId: number; done: boolean }[] }[] = [];
+
+    allMonths.forEach(month => {
+      const investments: { ticker: string; stockId: number; done: boolean }[] = [];
+
+      stocks.forEach(stock => {
+        // Check if this stock should have an investment this month
+        if (month >= stock.addedMonth) {
+          const hasBuy = stock.monthlyBuys.some(b => b.month === month);
+          investments.push({
+            ticker: stock.ticker,
+            stockId: stock.id,
+            done: hasBuy
           });
-          quarter.totalAmount += 6667;
         }
       });
 
-      schedule.push(quarter);
-    }
-    return schedule;
-  }, [positions]);
+      if (investments.length > 0) {
+        upcoming.push({ month, investments });
+      }
+    });
 
-  // Calculate position details
-  const getPositionDetails = (position: Position) => {
-    const totalInvested = position.installments.reduce((sum, inst) => sum + inst.amount, 0);
-    const totalShares = position.installments.reduce((sum, inst) => sum + inst.shares, 0);
-    const currentValue = totalShares * position.currentPrice;
-    const profit = currentValue - totalInvested;
-    const returnPct = totalInvested > 0 ? (profit / totalInvested) * 100 : 0;
-    const multiple = totalInvested > 0 ? currentValue / totalInvested : 0;
-    const isComplete = position.installments.length >= 3;
-    const status = isComplete ? 'Complete' : 'Building';
+    return upcoming;
+  }, [allMonths, stocks]);
 
-    return {
-      totalInvested,
-      totalShares,
-      currentValue,
-      profit,
-      returnPct,
-      multiple,
-      status,
-      installmentsComplete: position.installments.length
-    };
+  // Get first month of a quarter
+  const getFirstMonthOfQuarter = (quarter: string): string => {
+    const match = quarter.match(/Q(\d) (\d{4})/);
+    if (!match) return settings.startDate;
+    const q = parseInt(match[1]);
+    const year = match[2];
+    const month = (q - 1) * 3 + 1;
+    return `${year}-${String(month).padStart(2, '0')}`;
   };
 
-  const handleAddPosition = () => {
-    if (!newPosition.ticker || !newPosition.shares || !newPosition.pricePerShare) {
+  const handleAddStock = () => {
+    if (!newStock.ticker || !newStock.quarter || !newStock.shares || !newStock.pricePerShare) {
       alert('Please fill in all required fields');
       return;
     }
 
-    const position: Position = {
+    const firstMonth = getFirstMonthOfQuarter(newStock.quarter);
+    const shares = parseFloat(newStock.shares);
+    const price = parseFloat(newStock.pricePerShare);
+
+    const stock: Stock = {
       id: Date.now(),
-      ticker: newPosition.ticker.toUpperCase(),
-      name: newPosition.name,
-      startQuarter: newPosition.startQuarter,
-      installments: [{
-        quarter: newPosition.startQuarter,
-        amount: parseFloat(String(newPosition.amount)),
-        shares: parseFloat(String(newPosition.shares)),
-        pricePerShare: parseFloat(String(newPosition.pricePerShare)),
-        date: new Date().toISOString().split('T')[0]
-      }],
-      currentPrice: parseFloat(String(newPosition.currentPrice || newPosition.pricePerShare))
+      ticker: newStock.ticker.toUpperCase(),
+      name: newStock.name,
+      addedQuarter: newStock.quarter,
+      addedMonth: firstMonth,
+      currentPrice: parseFloat(newStock.currentPrice) || price,
+      monthlyBuys: [{
+        month: firstMonth,
+        date: new Date().toISOString().split('T')[0],
+        shares,
+        pricePerShare: price,
+        amount: shares * price,
+        locked: true
+      }]
     };
 
-    setPositions([...positions, position]);
+    setStocks([...stocks, stock]);
     setShowAddModal(false);
-    setNewPosition({
-      ticker: '',
-      name: '',
-      startQuarter: settings.currentQuarter,
-      amount: 6667,
-      shares: '',
-      pricePerShare: '',
-      currentPrice: ''
-    });
+    setNewStock({ ticker: '', name: '', quarter: '', shares: '', pricePerShare: '', currentPrice: '' });
   };
 
-  const handleDeletePosition = (id: number) => {
-    if (confirm('Are you sure you want to delete this position?')) {
-      setPositions(positions.filter(p => p.id !== id));
-    }
-  };
-
-  const handleAddInstallment = (positionId: number) => {
-    const position = positions.find(p => p.id === positionId);
-    if (!position) return;
-
-    const lastInstallment = position.installments[position.installments.length - 1];
-    const nextQuarter = lastInstallment.quarter + 1;
-
-    if (position.installments.length >= 3) {
-      alert('This position is already complete (3 installments)');
+  const handleRecordBuy = () => {
+    if (!showBuyModal || !buyForm.shares || !buyForm.pricePerShare) {
+      alert('Please fill in all required fields');
       return;
     }
 
-    const shares = prompt('Enter number of shares purchased:');
-    const price = prompt('Enter price per share:');
+    const { stock, month } = showBuyModal;
+    const shares = parseFloat(buyForm.shares);
+    const price = parseFloat(buyForm.pricePerShare);
 
-    if (shares && price) {
-      const newInstallment: Installment = {
-        quarter: nextQuarter,
-        amount: 6667,
-        shares: parseFloat(shares),
-        pricePerShare: parseFloat(price),
-        date: new Date().toISOString().split('T')[0]
-      };
+    const newBuy: MonthlyBuy = {
+      month,
+      date: buyForm.date,
+      shares,
+      pricePerShare: price,
+      amount: shares * price,
+      locked: true
+    };
 
-      setPositions(positions.map(p =>
-        p.id === positionId
-          ? { ...p, installments: [...p.installments, newInstallment] }
-          : p
+    setStocks(stocks.map(s =>
+      s.id === stock.id
+        ? { ...s, monthlyBuys: [...s.monthlyBuys, newBuy].sort((a, b) => a.month.localeCompare(b.month)) }
+        : s
+    ));
+
+    setShowBuyModal(null);
+    setBuyForm({ shares: '', pricePerShare: '', date: new Date().toISOString().split('T')[0] });
+  };
+
+  const handleUpdatePrice = (stockId: number) => {
+    const stock = stocks.find(s => s.id === stockId);
+    if (!stock) return;
+
+    const price = prompt(`Enter current price for ${stock.ticker}:`, String(stock.currentPrice));
+    if (price) {
+      setStocks(stocks.map(s =>
+        s.id === stockId ? { ...s, currentPrice: parseFloat(price) } : s
       ));
     }
   };
 
-  const handleUpdateCurrentPrice = (positionId: number) => {
-    const position = positions.find(p => p.id === positionId);
-    if (!position) return;
-
-    const price = prompt(`Enter current price for ${position.ticker}:`, String(position.currentPrice));
-    if (price) {
-      setPositions(positions.map(p =>
-        p.id === positionId
-          ? { ...p, currentPrice: parseFloat(price) }
-          : p
-      ));
+  const handleDeleteStock = (stockId: number) => {
+    if (confirm('Are you sure you want to delete this stock and all its buys?')) {
+      setStocks(stocks.filter(s => s.id !== stockId));
     }
   };
 
@@ -272,30 +303,19 @@ export function InvestmentTrackerView() {
     }).format(value);
   };
 
-  const formatNumber = (value: number, decimals = 2) => {
-    return value.toFixed(decimals);
-  };
-
-  // Return scenarios
-  const scenarios = [
-    { name: 'Conservative', multiple: 3, color: 'from-green-600 to-green-700' },
-    { name: 'Moderate', multiple: 4, color: 'from-blue-600 to-blue-700' },
-    { name: 'Aggressive', multiple: 5, color: 'from-purple-600 to-purple-700' },
-    { name: 'Stretch', multiple: 6, color: 'from-red-600 to-red-700' }
-  ];
-
-  const currentQuarterSchedule = investmentSchedule[settings.currentQuarter - 1];
-  const upcomingQuarters = investmentSchedule.slice(settings.currentQuarter, settings.currentQuarter + 3);
+  const currentMonth = getCurrentMonth();
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
         <h1 className="text-2xl font-bold text-white mb-2">Multi-Bagger Investment Tracker</h1>
-        <p className="text-gray-400">12 Stocks | 3-Year Build | 3-Year Hold Strategy</p>
+        <p className="text-gray-400">
+          1 new stock per quarter | Monthly investments until Dec 2028 | 12 stocks total
+        </p>
       </div>
 
-      {/* Main Dashboard Cards */}
+      {/* Portfolio Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl p-5 text-white col-span-2">
           <div className="flex items-center justify-between mb-2">
@@ -308,10 +328,7 @@ export function InvestmentTrackerView() {
               {portfolioMetrics.profit >= 0 ? '+' : ''}{formatCurrency(portfolioMetrics.profit)}
             </span>
             <span className={portfolioMetrics.returnPct >= 0 ? 'text-green-200' : 'text-red-200'}>
-              {portfolioMetrics.returnPct >= 0 ? '+' : ''}{formatNumber(portfolioMetrics.returnPct)}%
-            </span>
-            <span className="text-blue-200">
-              {formatNumber(portfolioMetrics.multiple, 2)}x
+              {portfolioMetrics.returnPct >= 0 ? '+' : ''}{portfolioMetrics.returnPct.toFixed(1)}%
             </span>
           </div>
         </div>
@@ -319,297 +336,315 @@ export function InvestmentTrackerView() {
         <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm text-gray-400">Total Invested</span>
-            <Target className="w-5 h-5 text-gray-500" />
+            <TrendingUp className="w-5 h-5 text-gray-500" />
           </div>
-          <div className="text-2xl font-bold text-white mb-2">
-            {formatCurrency(portfolioMetrics.totalInvested)}
-          </div>
-          <div className="text-sm text-gray-400">
-            {formatNumber(portfolioMetrics.deployedPct)}% deployed
-          </div>
-          <div className="w-full bg-gray-700 rounded-full h-2 mt-2">
-            <div
-              className="bg-blue-500 h-2 rounded-full transition-all"
-              style={{ width: `${Math.min(portfolioMetrics.deployedPct, 100)}%` }}
-            ></div>
+          <div className="text-2xl font-bold text-white">{formatCurrency(portfolioMetrics.totalInvested)}</div>
+          <div className="text-sm text-gray-400 mt-1">
+            {stocks.length} of 12 stocks
           </div>
         </div>
 
         <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-gray-400">Progress</span>
+            <span className="text-sm text-gray-400">Monthly Target</span>
             <Calendar className="w-5 h-5 text-gray-500" />
           </div>
-          <div className="text-2xl font-bold text-white mb-2">
-            Q{settings.currentQuarter} / 12
-          </div>
-          <div className="text-sm text-gray-400">
-            {positions.length} of 12 positions
-          </div>
-          <div className="text-xs text-gray-500 mt-1">
-            {positions.filter(p => getPositionDetails(p).status === 'Complete').length} complete
+          <div className="text-2xl font-bold text-white">{formatCurrency(settings.monthlyInvestment)}</div>
+          <div className="text-sm text-gray-400 mt-1">
+            per stock
           </div>
         </div>
       </div>
 
-      {/* Multi-Bagger Tracker */}
-      <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <TrendingUp className="w-5 h-5 text-green-400" />
-          Multi-Bagger Tracker
-        </h2>
-        <div className="grid grid-cols-3 gap-4">
-          <div className="text-center p-4 bg-red-900/30 rounded-lg border border-red-800/50">
-            <div className="text-3xl font-bold text-red-400">{portfolioMetrics.multiBaggers.tenX}</div>
-            <div className="text-sm text-gray-400">10x+ Baggers</div>
-          </div>
-          <div className="text-center p-4 bg-purple-900/30 rounded-lg border border-purple-800/50">
-            <div className="text-3xl font-bold text-purple-400">{portfolioMetrics.multiBaggers.fiveX}</div>
-            <div className="text-sm text-gray-400">5-10x Baggers</div>
-          </div>
-          <div className="text-center p-4 bg-green-900/30 rounded-lg border border-green-800/50">
-            <div className="text-3xl font-bold text-green-400">{portfolioMetrics.multiBaggers.threeX}</div>
-            <div className="text-sm text-gray-400">3-5x Baggers</div>
-          </div>
+      {/* Current Stocks */}
+      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+        <div className="p-5 border-b border-gray-700 flex justify-between items-center">
+          <h2 className="text-lg font-semibold text-white">My Stocks ({stocks.length}/12)</h2>
+          <button
+            onClick={() => {
+              if (availableQuarters.length === 0) {
+                alert('All 12 quarters already have a stock!');
+                return;
+              }
+              setNewStock({ ...newStock, quarter: availableQuarters[0] });
+              setShowAddModal(true);
+            }}
+            disabled={stocks.length >= 12}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition"
+          >
+            <Plus className="w-4 h-4" />
+            Add New Stock
+          </button>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Current Quarter Actions */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="bg-gradient-to-br from-amber-600 to-orange-600 rounded-xl p-5 text-white">
-            <h2 className="text-lg font-semibold mb-4">Current Quarter Actions (Q{settings.currentQuarter})</h2>
-            {currentQuarterSchedule && currentQuarterSchedule.actions.length > 0 ? (
-              <div className="space-y-3">
-                {currentQuarterSchedule.actions.map((action, idx) => (
-                  <div key={idx} className="flex items-center justify-between bg-white/20 rounded-lg p-3">
-                    <div className="flex items-center gap-3">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                        action.type === 'new' ? 'bg-green-400 text-green-900' : 'bg-blue-400 text-blue-900'
-                      }`}>
-                        {action.type === 'new' ? 'NEW' : `ADD #${action.installment}`}
-                      </span>
-                      <span className="font-semibold">{action.ticker}</span>
-                    </div>
-                    <span className="font-bold">{formatCurrency(action.amount)}</span>
-                  </div>
-                ))}
-                <div className="border-t border-white/30 pt-3 mt-3">
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold">Total This Quarter:</span>
-                    <span className="text-xl font-bold">{formatCurrency(currentQuarterSchedule.totalAmount)}</span>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <p className="text-white/80">No scheduled investments this quarter</p>
-            )}
-          </div>
-
-          {/* Positions Table */}
-          <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-            <div className="p-5 border-b border-gray-700 flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-white">Current Positions</h2>
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-              >
-                <Plus className="w-4 h-4" />
-                Add Position
-              </button>
-            </div>
-            {positions.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-900/50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Stock</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Invested</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Value</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">P&L</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Return</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Status</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Actions</th>
+        {stocks.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-900/50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Stock</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Added</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Shares</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Avg Price</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Current</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Invested</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Value</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">P&L</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Buys Left</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-700">
+                {stocks.map(stock => {
+                  const details = getStockDetails(stock);
+                  return (
+                    <tr key={stock.id} className="hover:bg-gray-700/30">
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-white">{stock.ticker}</div>
+                        <div className="text-xs text-gray-500">{stock.name}</div>
+                      </td>
+                      <td className="px-4 py-3 text-center text-sm text-gray-300">{stock.addedQuarter}</td>
+                      <td className="px-4 py-3 text-right font-medium text-white">{details.totalShares.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right text-gray-300">${details.avgPrice.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => handleUpdatePrice(stock.id)}
+                          className="text-blue-400 hover:text-blue-300 font-medium"
+                          title="Click to update"
+                        >
+                          ${stock.currentPrice.toFixed(2)}
+                          <RefreshCw className="w-3 h-3 inline ml-1" />
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 text-right text-gray-300">{formatCurrency(details.totalInvested)}</td>
+                      <td className="px-4 py-3 text-right font-medium text-white">{formatCurrency(details.currentValue)}</td>
+                      <td className={`px-4 py-3 text-right font-semibold ${details.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {details.profit >= 0 ? '+' : ''}{formatCurrency(details.profit)}
+                        <div className="text-xs">
+                          {details.returnPct >= 0 ? '+' : ''}{details.returnPct.toFixed(1)}%
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="px-2 py-1 bg-gray-700 rounded text-sm text-gray-300">
+                          {details.remainingMonths}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => handleDeleteStock(stock.id)}
+                          className="p-1.5 text-red-400 hover:bg-red-900/50 rounded"
+                          title="Delete stock"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-700">
-                    {positions.map(position => {
-                      const details = getPositionDetails(position);
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-8 text-center text-gray-500">
+            No stocks yet. Click "Add New Stock" to start building your portfolio.
+          </div>
+        )}
+      </div>
+
+      {/* All Buys History */}
+      {stocks.length > 0 && (
+        <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+          <div className="p-5 border-b border-gray-700">
+            <h2 className="text-lg font-semibold text-white">All Buy Transactions</h2>
+          </div>
+          <div className="overflow-x-auto max-h-96">
+            <table className="w-full">
+              <thead className="bg-gray-900/50 sticky top-0">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Stock</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Shares</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Price</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-700">
+                {stocks.flatMap(stock =>
+                  stock.monthlyBuys.map(buy => ({
+                    ...buy,
+                    ticker: stock.ticker,
+                    stockId: stock.id
+                  }))
+                )
+                .sort((a, b) => b.date.localeCompare(a.date))
+                .map((buy, idx) => (
+                  <tr key={`${buy.stockId}-${buy.month}-${idx}`} className="hover:bg-gray-700/30">
+                    <td className="px-4 py-2 text-sm text-gray-300">{buy.date}</td>
+                    <td className="px-4 py-2 text-sm font-medium text-white">{buy.ticker}</td>
+                    <td className="px-4 py-2 text-sm text-right text-gray-300">{buy.shares.toFixed(2)}</td>
+                    <td className="px-4 py-2 text-sm text-right text-gray-300">${buy.pricePerShare.toFixed(2)}</td>
+                    <td className="px-4 py-2 text-sm text-right font-medium text-white">{formatCurrency(buy.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Upcoming Investments Schedule */}
+      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+        <div className="p-5 border-b border-gray-700">
+          <h2 className="text-lg font-semibold text-white">Investment Schedule</h2>
+          <p className="text-sm text-gray-400 mt-1">Monthly investments for each stock until Dec 2028</p>
+        </div>
+        <div className="overflow-x-auto max-h-[500px]">
+          <table className="w-full">
+            <thead className="bg-gray-900/50 sticky top-0">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase sticky left-0 bg-gray-900">Month</th>
+                {stocks.map(stock => (
+                  <th key={stock.id} className="px-3 py-3 text-center text-xs font-medium text-gray-400 uppercase min-w-[80px]">
+                    {stock.ticker}
+                  </th>
+                ))}
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-700">
+              {upcomingInvestments.map(({ month, investments }) => {
+                const isPast = month < currentMonth;
+                const isCurrent = month === currentMonth;
+                const totalForMonth = investments.filter(i => i.done).reduce((sum, i) => {
+                  const stock = stocks.find(s => s.id === i.stockId);
+                  const buy = stock?.monthlyBuys.find(b => b.month === month);
+                  return sum + (buy?.amount || 0);
+                }, 0);
+
+                return (
+                  <tr
+                    key={month}
+                    className={`${isCurrent ? 'bg-blue-900/20' : ''} ${isPast ? 'opacity-60' : ''} hover:bg-gray-700/30`}
+                  >
+                    <td className={`px-4 py-2 text-sm font-medium sticky left-0 ${isCurrent ? 'bg-blue-900/40 text-blue-300' : 'bg-gray-800 text-gray-300'}`}>
+                      {formatMonth(month)}
+                      {isCurrent && <span className="ml-2 text-xs bg-blue-600 px-1.5 py-0.5 rounded">NOW</span>}
+                    </td>
+                    {stocks.map(stock => {
+                      const isApplicable = month >= stock.addedMonth;
+                      const buy = stock.monthlyBuys.find(b => b.month === month);
+
+                      if (!isApplicable) {
+                        return (
+                          <td key={stock.id} className="px-3 py-2 text-center text-gray-600">
+                            -
+                          </td>
+                        );
+                      }
+
+                      if (buy) {
+                        return (
+                          <td key={stock.id} className="px-3 py-2 text-center">
+                            <span className="text-green-400 text-sm font-medium">
+                              ${buy.amount.toFixed(0)}
+                            </span>
+                          </td>
+                        );
+                      }
+
                       return (
-                        <tr key={position.id} className="hover:bg-gray-700/30">
-                          <td className="px-4 py-3">
-                            <div
-                              className="font-semibold text-white cursor-pointer hover:text-blue-400"
-                              onClick={() => handleUpdateCurrentPrice(position.id)}
-                              title="Click to update current price"
+                        <td key={stock.id} className="px-3 py-2 text-center">
+                          {!isPast ? (
+                            <button
+                              onClick={() => {
+                                setShowBuyModal({ stock, month });
+                                setBuyForm({
+                                  shares: '',
+                                  pricePerShare: String(stock.currentPrice),
+                                  date: new Date().toISOString().split('T')[0]
+                                });
+                              }}
+                              className="text-xs px-2 py-1 bg-yellow-600/30 text-yellow-400 rounded hover:bg-yellow-600/50 transition"
                             >
-                              {position.ticker}
-                            </div>
-                            <div className="text-xs text-gray-500">{position.name}</div>
-                            <div className="text-xs text-gray-400 mt-1">
-                              {details.totalShares.toFixed(2)} @ ${position.currentPrice}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-right font-medium text-white">
-                            {formatCurrency(details.totalInvested)}
-                            <div className="text-xs text-gray-500">
-                              {details.installmentsComplete}/3
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-right font-medium text-white">
-                            {formatCurrency(details.currentValue)}
-                          </td>
-                          <td className={`px-4 py-3 text-right font-semibold ${details.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {details.profit >= 0 ? '+' : ''}{formatCurrency(details.profit)}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <span className={`font-bold ${details.returnPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              {details.returnPct >= 0 ? '+' : ''}{formatNumber(details.returnPct)}%
-                            </span>
-                            <div className="text-xs text-blue-400 font-semibold">
-                              {formatNumber(details.multiple, 2)}x
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                              details.status === 'Complete'
-                                ? 'bg-green-900/50 text-green-400'
-                                : 'bg-yellow-900/50 text-yellow-400'
-                            }`}>
-                              {details.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-center gap-2">
-                              {details.status === 'Building' && (
-                                <button
-                                  onClick={() => handleAddInstallment(position.id)}
-                                  className="p-1.5 text-blue-400 hover:bg-blue-900/50 rounded"
-                                  title="Add Installment"
-                                >
-                                  <Plus className="w-4 h-4" />
-                                </button>
-                              )}
-                              <button
-                                onClick={() => handleDeletePosition(position.id)}
-                                className="p-1.5 text-red-400 hover:bg-red-900/50 rounded"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
+                              Record
+                            </button>
+                          ) : (
+                            <span className="text-red-400 text-xs">Missed</span>
+                          )}
+                        </td>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="p-8 text-center text-gray-500">
-                No positions yet. Click "Add Position" to get started.
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Sidebar */}
-        <div className="space-y-4">
-          {/* Upcoming Quarters */}
-          <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-            <h3 className="text-lg font-semibold text-white mb-4">Upcoming Quarters</h3>
-            <div className="space-y-3">
-              {upcomingQuarters.map(quarter => (
-                <div key={quarter.quarter} className="border-l-4 border-blue-500 pl-4 py-2">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="font-semibold text-white">Q{quarter.quarter}</span>
-                    <span className="text-sm font-bold text-blue-400">{formatCurrency(quarter.totalAmount)}</span>
-                  </div>
-                  <div className="text-xs text-gray-400 space-y-1">
-                    {quarter.actions.length > 0 ? (
-                      quarter.actions.map((action, idx) => (
-                        <div key={idx}>
-                          {action.type === 'new' ? 'NEW' : 'ADD'} {action.ticker}
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-gray-500">No actions scheduled</div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Return Scenarios */}
-          <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-purple-400" />
-              Return Scenarios
-            </h3>
-            <div className="space-y-3">
-              {scenarios.map(scenario => {
-                const finalValue = settings.totalCapital * scenario.multiple;
-                const profit = finalValue - settings.totalCapital;
-                return (
-                  <div key={scenario.name} className={`p-3 bg-gradient-to-r ${scenario.color} rounded-lg`}>
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="font-semibold text-white">{scenario.name}</span>
-                      <span className="text-lg font-bold text-white">{scenario.multiple}x</span>
-                    </div>
-                    <div className="text-sm text-white/80">
-                      {formatCurrency(finalValue)}
-                    </div>
-                    <div className="text-xs text-white/70">
-                      +{formatCurrency(profit)} profit
-                    </div>
-                  </div>
+                    <td className="px-4 py-2 text-right text-sm font-medium text-white">
+                      {totalForMonth > 0 ? formatCurrency(totalForMonth) : '-'}
+                    </td>
+                  </tr>
                 );
               })}
-            </div>
-          </div>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-          {/* Settings */}
-          <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-            <h3 className="text-lg font-semibold text-white mb-4">Settings</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Total Capital ($)</label>
-                <input
-                  type="number"
-                  value={settings.totalCapital}
-                  onChange={(e) => setSettings({...settings, totalCapital: parseInt(e.target.value) || 0})}
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Current Quarter</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="12"
-                  value={settings.currentQuarter}
-                  onChange={(e) => setSettings({...settings, currentQuarter: parseInt(e.target.value) || 1})}
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
+      {/* Settings */}
+      <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+        <h3 className="text-lg font-semibold text-white mb-4">Settings</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">Monthly Investment ($)</label>
+            <input
+              type="number"
+              value={settings.monthlyInvestment}
+              onChange={(e) => setSettings({...settings, monthlyInvestment: parseInt(e.target.value) || 0})}
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">Start Date</label>
+            <input
+              type="month"
+              value={settings.startDate}
+              onChange={(e) => setSettings({...settings, startDate: e.target.value})}
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">End Date</label>
+            <input
+              type="month"
+              value={settings.endDate}
+              onChange={(e) => setSettings({...settings, endDate: e.target.value})}
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+            />
           </div>
         </div>
       </div>
 
-      {/* Add Position Modal */}
+      {/* Add Stock Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
           <div className="bg-gray-800 rounded-xl p-6 max-w-md w-full border border-gray-700">
-            <h3 className="text-xl font-semibold text-white mb-4">Add New Position</h3>
+            <h3 className="text-xl font-semibold text-white mb-4">Add New Stock</h3>
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">Quarter *</label>
+                <select
+                  value={newStock.quarter}
+                  onChange={(e) => setNewStock({...newStock, quarter: e.target.value})}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">Select quarter</option>
+                  {availableQuarters.map(q => (
+                    <option key={q} value={q}>{q}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Only 1 stock allowed per quarter</p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-400 mb-1">Ticker Symbol *</label>
                 <input
                   type="text"
-                  value={newPosition.ticker}
-                  onChange={(e) => setNewPosition({...newPosition, ticker: e.target.value})}
+                  value={newStock.ticker}
+                  onChange={(e) => setNewStock({...newStock, ticker: e.target.value.toUpperCase()})}
                   placeholder="e.g., AAPL"
                   className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
                 />
@@ -618,53 +653,44 @@ export function InvestmentTrackerView() {
                 <label className="block text-sm font-medium text-gray-400 mb-1">Company Name</label>
                 <input
                   type="text"
-                  value={newPosition.name}
-                  onChange={(e) => setNewPosition({...newPosition, name: e.target.value})}
+                  value={newStock.name}
+                  onChange={(e) => setNewStock({...newStock, name: e.target.value})}
                   placeholder="e.g., Apple Inc."
                   className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Start Quarter</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="12"
-                  value={newPosition.startQuarter}
-                  onChange={(e) => setNewPosition({...newPosition, startQuarter: parseInt(e.target.value) || 1})}
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Shares *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={newStock.shares}
+                    onChange={(e) => setNewStock({...newStock, shares: e.target.value})}
+                    placeholder="e.g., 10"
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Buy Price *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={newStock.pricePerShare}
+                    onChange={(e) => setNewStock({...newStock, pricePerShare: e.target.value})}
+                    placeholder="e.g., 150.00"
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Shares Purchased *</label>
+                <label className="block text-sm font-medium text-gray-400 mb-1">Current Price (for tracking)</label>
                 <input
                   type="number"
                   step="0.01"
-                  value={newPosition.shares}
-                  onChange={(e) => setNewPosition({...newPosition, shares: e.target.value})}
-                  placeholder="e.g., 50"
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Price Per Share *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newPosition.pricePerShare}
-                  onChange={(e) => setNewPosition({...newPosition, pricePerShare: e.target.value})}
-                  placeholder="e.g., 133.34"
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Current Price</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newPosition.currentPrice}
-                  onChange={(e) => setNewPosition({...newPosition, currentPrice: e.target.value})}
-                  placeholder="Leave empty to use purchase price"
+                  value={newStock.currentPrice}
+                  onChange={(e) => setNewStock({...newStock, currentPrice: e.target.value})}
+                  placeholder="Leave empty to use buy price"
                   className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -677,10 +703,79 @@ export function InvestmentTrackerView() {
                 Cancel
               </button>
               <button
-                onClick={handleAddPosition}
+                onClick={handleAddStock}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
               >
-                Add Position
+                Add Stock
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Record Buy Modal */}
+      {showBuyModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-800 rounded-xl p-6 max-w-md w-full border border-gray-700">
+            <h3 className="text-xl font-semibold text-white mb-2">Record Buy</h3>
+            <p className="text-gray-400 mb-4">
+              {showBuyModal.stock.ticker} - {formatMonth(showBuyModal.month)}
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">Date</label>
+                <input
+                  type="date"
+                  value={buyForm.date}
+                  onChange={(e) => setBuyForm({...buyForm, date: e.target.value})}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Shares *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={buyForm.shares}
+                    onChange={(e) => setBuyForm({...buyForm, shares: e.target.value})}
+                    placeholder="e.g., 10"
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Buy Price *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={buyForm.pricePerShare}
+                    onChange={(e) => setBuyForm({...buyForm, pricePerShare: e.target.value})}
+                    placeholder="e.g., 150.00"
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+              {buyForm.shares && buyForm.pricePerShare && (
+                <div className="p-3 bg-gray-700/50 rounded-lg">
+                  <div className="text-sm text-gray-400">Total Amount:</div>
+                  <div className="text-xl font-bold text-white">
+                    {formatCurrency(parseFloat(buyForm.shares) * parseFloat(buyForm.pricePerShare))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowBuyModal(null)}
+                className="flex-1 px-4 py-2 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRecordBuy}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+              >
+                Record Buy
               </button>
             </div>
           </div>
