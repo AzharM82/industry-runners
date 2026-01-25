@@ -1,5 +1,6 @@
 """
 Create Stripe Checkout Session API
+Handles subscription checkout flow via Stripe
 """
 
 import json
