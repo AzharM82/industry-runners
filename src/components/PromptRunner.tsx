@@ -71,6 +71,10 @@ const LOADING_MESSAGES: Record<string, string[]> = {
   ]
 };
 
+interface PromptUsage {
+  [key: string]: { used: number; limit: number };
+}
+
 export function PromptRunner() {
   const [selectedPrompt, setSelectedPrompt] = useState<string>('');
   const [ticker, setTicker] = useState('');
@@ -83,6 +87,7 @@ export function PromptRunner() {
   const [isDragging, setIsDragging] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(false);
+  const [usage, setUsage] = useState<PromptUsage>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
@@ -112,17 +117,24 @@ export function PromptRunner() {
     return () => clearInterval(interval);
   }, [loading, selectedPrompt]);
 
-  // Check if user is admin
-  useEffect(() => {
+  // Fetch user status and usage data
+  const fetchUsageData = useCallback(() => {
     fetch('/api/subscription-status')
       .then(res => res.json())
       .then(data => {
         if (data.is_admin) {
           setIsAdmin(true);
         }
+        if (data.usage) {
+          setUsage(data.usage);
+        }
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    fetchUsageData();
+  }, [fetchUsageData]);
 
   const processImage = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -314,6 +326,8 @@ export function PromptRunner() {
       }
 
       setResult(data);
+      // Refresh usage data after successful analysis
+      fetchUsageData();
     } catch (err) {
       setError('Network error. Please try again.');
     } finally {
@@ -333,21 +347,48 @@ export function PromptRunner() {
       <div>
         <h3 className="text-lg font-semibold text-white mb-4">Select Analysis Type</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {PROMPT_TYPES.map((prompt) => (
-            <button
-              key={prompt.id}
-              onClick={() => setSelectedPrompt(prompt.id)}
-              className={`p-4 rounded-xl border-2 text-left transition-all ${
-                selectedPrompt === prompt.id
-                  ? 'border-blue-500 bg-blue-500/10'
-                  : 'border-gray-700 bg-gray-800 hover:border-gray-600'
-              }`}
-            >
-              <div className="text-2xl mb-2">{prompt.icon}</div>
-              <div className="font-semibold text-white">{prompt.name}</div>
-              <div className="text-sm text-gray-400 mt-1">{prompt.description}</div>
-            </button>
-          ))}
+          {PROMPT_TYPES.map((prompt) => {
+            const promptUsage = usage[prompt.id];
+            const used = promptUsage?.used || 0;
+            const limit = promptUsage?.limit || 30;
+            const isLimitReached = used >= limit && !isAdmin;
+
+            return (
+              <button
+                key={prompt.id}
+                onClick={() => !isLimitReached && setSelectedPrompt(prompt.id)}
+                disabled={isLimitReached}
+                className={`p-4 rounded-xl border-2 text-left transition-all relative ${
+                  isLimitReached
+                    ? 'border-red-800 bg-red-900/20 cursor-not-allowed opacity-60'
+                    : selectedPrompt === prompt.id
+                    ? 'border-blue-500 bg-blue-500/10'
+                    : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                }`}
+              >
+                <div className="flex justify-between items-start">
+                  <div className="text-2xl mb-2">{prompt.icon}</div>
+                  {/* Usage Badge */}
+                  <div className={`text-xs px-2 py-1 rounded-full font-medium ${
+                    isLimitReached
+                      ? 'bg-red-900/50 text-red-400'
+                      : used > limit * 0.8
+                      ? 'bg-yellow-900/50 text-yellow-400'
+                      : 'bg-gray-700 text-gray-300'
+                  }`}>
+                    {used}/{limit}
+                  </div>
+                </div>
+                <div className="font-semibold text-white">{prompt.name}</div>
+                <div className="text-sm text-gray-400 mt-1">{prompt.description}</div>
+                {isLimitReached && (
+                  <div className="text-xs text-red-400 mt-2">
+                    Monthly limit reached
+                  </div>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
