@@ -118,6 +118,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         prompt_type = body.get('prompt_type', '').lower()
         ticker = body.get('ticker', '').upper().strip()
+        image_data = body.get('image', None)  # Base64 data URL for chart images
 
         # Validate prompt type
         if prompt_type not in PROMPTS:
@@ -134,6 +135,37 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 status_code=400,
                 mimetype='application/json'
             )
+
+        # ChartGPT requires an image
+        if prompt_type == 'chartgpt' and not image_data:
+            return func.HttpResponse(
+                json.dumps({'error': 'ChartGPT requires a chart image. Please upload a chart.'}),
+                status_code=400,
+                mimetype='application/json'
+            )
+
+        # Validate image format if provided
+        has_image = False
+        image_media_type = None
+        image_base64 = None
+        if image_data:
+            if not image_data.startswith('data:image/'):
+                return func.HttpResponse(
+                    json.dumps({'error': 'Invalid image format. Must be a valid image data URL.'}),
+                    status_code=400,
+                    mimetype='application/json'
+                )
+            # Extract media type and base64 data
+            try:
+                header, image_base64 = image_data.split(',', 1)
+                image_media_type = header.split(':')[1].split(';')[0]
+                has_image = True
+            except:
+                return func.HttpResponse(
+                    json.dumps({'error': 'Failed to parse image data.'}),
+                    status_code=400,
+                    mimetype='application/json'
+                )
 
         # Check access
         admin = is_admin(user_email)
@@ -186,13 +218,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype='application/json'
             )
 
-        # Check cache
+        # Check cache (skip for image-based requests since each chart is unique)
         today = datetime.now().strftime('%Y-%m-%d')
         cache_key = f"prompt:{prompt_type}:{ticker}:{today}"
         cached_result = None
         redis_client = get_redis_client()
 
-        if redis_client:
+        # Only use cache for non-image requests
+        if redis_client and not has_image:
             try:
                 cached = redis_client.get(cache_key)
                 if cached:
@@ -232,29 +265,50 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         # Build user message based on prompt type
         if prompt_type == 'chartgpt':
-            user_message = f"CHARTGPT: Analyze {ticker}"
+            user_text = f"CHARTGPT: Analyze this chart for {ticker}. Provide a comprehensive technical analysis with entry/exit points."
         elif prompt_type == 'deep-research':
-            user_message = f"Analyze {ticker}"
+            user_text = f"Analyze {ticker}"
         elif prompt_type == 'halal':
-            user_message = f"Check the Halal Status for {ticker}"
+            user_text = f"Check the Halal Status for {ticker}"
         else:
-            user_message = f"Analyze {ticker}"
+            user_text = f"Analyze {ticker}"
 
-        logging.info(f"Calling Claude API for {prompt_type}: {ticker}")
+        logging.info(f"Calling Claude API for {prompt_type}: {ticker} (has_image={has_image})")
+
+        # Build message content - with or without image
+        if has_image:
+            # Vision request with image
+            message_content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image_media_type,
+                        "data": image_base64
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": user_text
+                }
+            ]
+        else:
+            # Text-only request
+            message_content = user_text
 
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=4096,
             system=system_prompt,
             messages=[
-                {"role": "user", "content": user_message}
+                {"role": "user", "content": message_content}
             ]
         )
 
         result = response.content[0].text
 
-        # Cache the result (24 hours)
-        if redis_client:
+        # Cache the result (24 hours) - only for non-image requests
+        if redis_client and not has_image:
             try:
                 redis_client.setex(cache_key, 86400, result)
                 logging.info(f"Cached result for {cache_key}")

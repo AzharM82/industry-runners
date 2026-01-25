@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 interface Usage {
   used: number;
@@ -18,19 +18,22 @@ const PROMPT_TYPES = [
     id: 'chartgpt',
     name: 'ChartGPT',
     description: 'AI pattern analysis with entry/exit points',
-    icon: '📊'
+    icon: '📊',
+    requiresImage: true
   },
   {
     id: 'deep-research',
     name: 'Deep Research',
     description: '13-point institutional equity research',
-    icon: '📑'
+    icon: '📑',
+    requiresImage: false
   },
   {
     id: 'halal',
     name: 'Halal Check',
     description: 'AAOIFI Shariah compliance screening',
-    icon: '✅'
+    icon: '✅',
+    requiresImage: false
   }
 ];
 
@@ -40,10 +43,96 @@ export function PromptRunner() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PromptResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [chartImage, setChartImage] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+
+  const selectedPromptConfig = PROMPT_TYPES.find(p => p.id === selectedPrompt);
+  const requiresImage = selectedPromptConfig?.requiresImage ?? false;
+
+  const processImage = useCallback((file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setError('Please upload an image file (PNG, JPG, etc.)');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Image must be less than 10MB');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const base64 = e.target?.result as string;
+      setChartImage(base64);
+      setError(null);
+    };
+    reader.onerror = () => {
+      setError('Failed to read image file');
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) processImage(file);
+  }, [processImage]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  }, []);
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processImage(file);
+  }, [processImage]);
+
+  const handlePaste = useCallback((e: ClipboardEvent) => {
+    if (!requiresImage) return;
+
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          processImage(file);
+          break;
+        }
+      }
+    }
+  }, [processImage, requiresImage]);
+
+  useEffect(() => {
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [handlePaste]);
+
+  const clearImage = () => {
+    setChartImage(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const handleRun = async () => {
     if (!selectedPrompt || !ticker.trim()) {
       setError('Please select a prompt type and enter a ticker');
+      return;
+    }
+
+    if (requiresImage && !chartImage) {
+      setError('Please upload a chart image for ChartGPT analysis');
       return;
     }
 
@@ -52,15 +141,21 @@ export function PromptRunner() {
     setResult(null);
 
     try {
+      const requestBody: Record<string, string> = {
+        prompt_type: selectedPrompt,
+        ticker: ticker.trim().toUpperCase()
+      };
+
+      if (requiresImage && chartImage) {
+        requestBody.image = chartImage;
+      }
+
       const response = await fetch('/api/run-prompt', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          prompt_type: selectedPrompt,
-          ticker: ticker.trim().toUpperCase()
-        })
+        body: JSON.stringify(requestBody)
       });
 
       const data = await response.json();
@@ -133,7 +228,7 @@ export function PromptRunner() {
         <div className="flex items-end">
           <button
             onClick={handleRun}
-            disabled={loading || !selectedPrompt || !ticker.trim()}
+            disabled={loading || !selectedPrompt || !ticker.trim() || (requiresImage && !chartImage)}
             className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors"
           >
             {loading ? (
@@ -150,6 +245,68 @@ export function PromptRunner() {
           </button>
         </div>
       </div>
+
+      {/* Chart Image Upload (ChartGPT only) */}
+      {requiresImage && (
+        <div>
+          <label className="block text-sm font-medium text-gray-400 mb-2">
+            Chart Image <span className="text-red-400">*</span>
+          </label>
+
+          {!chartImage ? (
+            <div
+              ref={dropZoneRef}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+                isDragging
+                  ? 'border-blue-500 bg-blue-500/10'
+                  : 'border-gray-700 bg-gray-800/50 hover:border-gray-600 hover:bg-gray-800'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <div className="text-4xl mb-3">📈</div>
+              <div className="text-white font-medium mb-1">
+                Drop chart image here or click to upload
+              </div>
+              <div className="text-sm text-gray-500">
+                You can also paste an image from clipboard (Ctrl+V / Cmd+V)
+              </div>
+              <div className="text-xs text-gray-600 mt-2">
+                Supports PNG, JPG, GIF (max 10MB)
+              </div>
+            </div>
+          ) : (
+            <div className="relative rounded-xl overflow-hidden border border-gray-700 bg-gray-800">
+              <img
+                src={chartImage}
+                alt="Chart preview"
+                className="w-full max-h-[400px] object-contain"
+              />
+              <button
+                onClick={clearImage}
+                className="absolute top-3 right-3 p-2 bg-red-600 hover:bg-red-700 rounded-lg text-white transition-colors"
+                title="Remove image"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+              <div className="absolute bottom-3 left-3 px-3 py-1 bg-green-600/90 rounded-lg text-white text-sm">
+                Chart ready for analysis
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Error Display */}
       {error && (
