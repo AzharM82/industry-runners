@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { BreadthData, FinvizBreadthData } from '../types';
+import type { BreadthData, FinvizBreadthData, BreadthHistoryResponse } from '../types';
 
 const API_BASE = '/api';
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -22,6 +22,7 @@ function isMarketOpen(): boolean {
 export function BreadthIndicatorsView() {
   const [breadthData, setBreadthData] = useState<BreadthData | null>(null);
   const [finvizData, setFinvizData] = useState<FinvizBreadthData | null>(null);
+  const [historyData, setHistoryData] = useState<BreadthHistoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [finvizLoading, setFinvizLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,11 +81,24 @@ export function BreadthIndicatorsView() {
     }
   }, []);
 
+  const fetchHistoryData = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/breadth-history?days=5`);
+      if (response.ok) {
+        const data = await response.json();
+        setHistoryData(data);
+      }
+    } catch (err) {
+      console.error('Error fetching history data:', err);
+    }
+  }, []);
+
   // Initial fetch
   useEffect(() => {
     fetchBreadthData();
     fetchFinvizData();
-  }, [fetchBreadthData, fetchFinvizData]);
+    fetchHistoryData();
+  }, [fetchBreadthData, fetchFinvizData, fetchHistoryData]);
 
   // Auto-refresh during market hours (Polygon only - Finviz is daily)
   useEffect(() => {
@@ -104,6 +118,7 @@ export function BreadthIndicatorsView() {
     setFinvizLoading(true);
     fetchBreadthData();
     fetchFinvizData();
+    fetchHistoryData();
   };
 
   const formatTime = (date: Date) => {
@@ -112,6 +127,11 @@ export function BreadthIndicatorsView() {
       minute: '2-digit',
       second: '2-digit'
     });
+  };
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr + 'T00:00:00');
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
   // Helper to render a metric cell with color
@@ -149,6 +169,19 @@ export function BreadthIndicatorsView() {
         {label && <div className="text-xs opacity-75">{label}</div>}
       </div>
     );
+  };
+
+  // Helper for history table cell styling
+  const getHistoryCellClass = (value: number | null | undefined, type: 'up' | 'down' | 'ratio') => {
+    if (value == null) return 'text-gray-500';
+    if (type === 'up') return 'text-green-400';
+    if (type === 'down') return 'text-red-400';
+    if (type === 'ratio') {
+      if (value > 1) return 'text-green-400';
+      if (value < 1) return 'text-red-400';
+      return 'text-yellow-400';
+    }
+    return 'text-gray-300';
   };
 
   if (loading && !breadthData) {
@@ -277,6 +310,52 @@ export function BreadthIndicatorsView() {
               </div>
             </div>
           </div>
+
+          {/* Real-Time History Table */}
+          {historyData && historyData.realtime.length > 0 && (
+            <div className="bg-gray-800 rounded-lg p-4">
+              <h4 className="text-sm font-medium text-gray-400 mb-3">5-Day History (Real-Time)</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-700">
+                      <th className="px-2 py-2 text-left text-xs text-gray-500">Date</th>
+                      <th className="px-2 py-2 text-center text-xs text-gray-500">Up 4%</th>
+                      <th className="px-2 py-2 text-center text-xs text-gray-500">Dn 4%</th>
+                      <th className="px-2 py-2 text-center text-xs text-gray-500">5D Ratio</th>
+                      <th className="px-2 py-2 text-center text-xs text-gray-500">T2108</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyData.realtime.map((item) => {
+                      const data = item.data as BreadthData;
+                      return (
+                        <tr key={item.date} className="border-b border-gray-700/50">
+                          <td className="px-2 py-2 text-gray-300">{formatDate(item.date)}</td>
+                          <td className={`px-2 py-2 text-center ${getHistoryCellClass(data.primary?.up4PlusToday, 'up')}`}>
+                            {data.primary?.up4PlusToday ?? '--'}
+                          </td>
+                          <td className={`px-2 py-2 text-center ${getHistoryCellClass(data.primary?.down4PlusToday, 'down')}`}>
+                            {data.primary?.down4PlusToday ?? '--'}
+                          </td>
+                          <td className={`px-2 py-2 text-center ${getHistoryCellClass(data.primary?.ratio5Day, 'ratio')}`}>
+                            {data.primary?.ratio5Day ?? '--'}
+                          </td>
+                          <td className={`px-2 py-2 text-center ${
+                            data.t2108 != null
+                              ? data.t2108 > 70 ? 'text-red-400' : data.t2108 < 30 ? 'text-green-400' : 'text-yellow-400'
+                              : 'text-gray-500'
+                          }`}>
+                            {data.t2108 != null ? `${data.t2108}%` : '--'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* RIGHT SIDE: Finviz Daily Data */}
@@ -347,6 +426,48 @@ export function BreadthIndicatorsView() {
               </>
             )}
           </div>
+
+          {/* Finviz History Table */}
+          {historyData && historyData.daily.length > 0 && (
+            <div className="bg-gray-800 rounded-lg p-4">
+              <h4 className="text-sm font-medium text-gray-400 mb-3">5-Day History (Technical)</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-700">
+                      <th className="px-2 py-2 text-left text-xs text-gray-500">Date</th>
+                      <th className="px-2 py-2 text-center text-xs text-gray-500">Highs</th>
+                      <th className="px-2 py-2 text-center text-xs text-gray-500">Lows</th>
+                      <th className="px-2 py-2 text-center text-xs text-gray-500">H/L</th>
+                      <th className="px-2 py-2 text-center text-xs text-gray-500">&gt;SMA200</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyData.daily.map((item) => {
+                      const data = item.data as FinvizBreadthData;
+                      return (
+                        <tr key={item.date} className="border-b border-gray-700/50">
+                          <td className="px-2 py-2 text-gray-300">{formatDate(item.date)}</td>
+                          <td className={`px-2 py-2 text-center ${getHistoryCellClass(data.highs?.new52WeekHigh, 'up')}`}>
+                            {data.highs?.new52WeekHigh ?? '--'}
+                          </td>
+                          <td className={`px-2 py-2 text-center ${getHistoryCellClass(data.highs?.new52WeekLow, 'down')}`}>
+                            {data.highs?.new52WeekLow ?? '--'}
+                          </td>
+                          <td className={`px-2 py-2 text-center ${getHistoryCellClass(data.highs?.highLowRatio, 'ratio')}`}>
+                            {data.highs?.highLowRatio ?? '--'}
+                          </td>
+                          <td className={`px-2 py-2 text-center ${getHistoryCellClass(data.sma?.aboveSMA200, 'up')}`}>
+                            {data.sma?.aboveSMA200 ?? '--'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -370,6 +491,13 @@ export function BreadthIndicatorsView() {
             <li>Death Cross = SMA50 crossed below SMA200 (bearish)</li>
           </ul>
         </div>
+      </div>
+
+      {/* Redis Cache Info */}
+      <div className="bg-gray-800/30 rounded-lg p-3 text-center">
+        <p className="text-xs text-gray-600">
+          Data cached with Redis for faster loading. History requires Redis configuration (REDIS_CONNECTION_STRING).
+        </p>
       </div>
     </div>
   );

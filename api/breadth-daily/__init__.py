@@ -1,11 +1,18 @@
 import json
 import os
+import sys
 import logging
 import re
 from datetime import datetime
 import azure.functions as func
 import urllib.request
 import ssl
+
+# Add shared module to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from shared.cache import get_cached, set_cached, save_daily_snapshot, should_save_daily_snapshot, CACHE_TTL_DAILY
+
+CACHE_KEY = 'breadth:daily'
 
 # Finviz screener filters
 # Documentation: https://finviz.com/screener.ashx
@@ -104,6 +111,20 @@ def fetch_total_universe_count() -> int:
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     try:
+        # Check for bypass cache parameter
+        bypass_cache = req.params.get('refresh', '').lower() == 'true'
+
+        # Try to get cached data first (unless bypassing)
+        if not bypass_cache:
+            cached = get_cached(CACHE_KEY)
+            if cached:
+                logging.info("Returning cached Finviz breadth data")
+                cached['cached'] = True
+                return func.HttpResponse(
+                    json.dumps(cached),
+                    mimetype="application/json"
+                )
+
         logging.info("Fetching Finviz breadth data...")
 
         # Get total universe count
@@ -135,6 +156,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             'date': datetime.now().strftime('%Y-%m-%d'),
             'timestamp': int(datetime.now().timestamp() * 1000),
             'universeCount': universe_count,
+            'cached': False,
             'highs': {
                 'new52WeekHigh': results['new52WeekHigh'],
                 'new52WeekLow': results['new52WeekLow'],
@@ -158,6 +180,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 'deathCross': results['sma50BelowSMA200']
             }
         }
+
+        # Cache the response (1 hour TTL for daily data)
+        set_cached(CACHE_KEY, response, CACHE_TTL_DAILY)
+        logging.info("Cached Finviz breadth data")
+
+        # Save daily snapshot (once per day)
+        if should_save_daily_snapshot('breadth:daily'):
+            save_daily_snapshot('breadth:daily', response)
 
         return func.HttpResponse(
             json.dumps(response),

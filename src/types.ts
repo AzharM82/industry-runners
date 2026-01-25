@@ -203,6 +203,7 @@ export interface FinvizBreadthData {
   date: string;
   timestamp: number;
   universeCount: number;
+  cached?: boolean;
   highs: {
     new52WeekHigh: number;
     new52WeekLow: number;
@@ -225,4 +226,16 @@ export interface FinvizBreadthData {
     goldenCross: number;
     deathCross: number;
   };
+}
+
+// Breadth History Types
+export interface BreadthHistoryItem {
+  date: string;
+  data: BreadthData | FinvizBreadthData;
+}
+
+export interface BreadthHistoryResponse {
+  days: number;
+  realtime: BreadthHistoryItem[];
+  daily: BreadthHistoryItem[];
 }

@@ -1,12 +1,18 @@
 import json
 import os
+import sys
 import logging
 from datetime import datetime, timedelta
 import azure.functions as func
 import urllib.request
 import ssl
 
+# Add shared module to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from shared.cache import get_cached, set_cached, save_daily_snapshot, should_save_daily_snapshot, CACHE_TTL_REALTIME
+
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
+CACHE_KEY = 'breadth:realtime'
 POLYGON_BASE_URL = 'https://api.polygon.io'
 
 # Breadth universe - combined list from ETFs, day trade stocks, and focus stocks
@@ -464,6 +470,20 @@ def calculate_breadth_indicators(snapshots: dict, hist_21: dict, hist_34: dict, 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     try:
+        # Check for bypass cache parameter
+        bypass_cache = req.params.get('refresh', '').lower() == 'true'
+
+        # Try to get cached data first (unless bypassing)
+        if not bypass_cache:
+            cached = get_cached(CACHE_KEY)
+            if cached:
+                logging.info("Returning cached breadth data")
+                cached['cached'] = True
+                return func.HttpResponse(
+                    json.dumps(cached),
+                    mimetype="application/json"
+                )
+
         if not POLYGON_API_KEY:
             return func.HttpResponse(
                 json.dumps({'error': 'Polygon API key not configured'}),
@@ -509,8 +529,17 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             'date': datetime.now().strftime('%Y-%m-%d'),
             'timestamp': int(datetime.now().timestamp() * 1000),
             'universeCount': len(BREADTH_UNIVERSE),
+            'cached': False,
             **indicators
         }
+
+        # Cache the response
+        set_cached(CACHE_KEY, response, CACHE_TTL_REALTIME)
+        logging.info("Cached breadth data")
+
+        # Save daily snapshot (once per day)
+        if should_save_daily_snapshot('breadth:realtime'):
+            save_daily_snapshot('breadth:realtime', response)
 
         return func.HttpResponse(
             json.dumps(response),
