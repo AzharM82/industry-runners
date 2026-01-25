@@ -98,7 +98,7 @@ function getAllSymbols(): string[] {
 type DashboardType = 'ai-analysis' | 'analysis' | 'focus' | 'breadth' | 'swing' | 'daytrade';
 
 export function Dashboard() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<DashboardType>('ai-analysis');
   const [quotes, setQuotes] = useState<Record<string, StockQuote>>({});
   const [indices, setIndices] = useState<MarketIndex[]>([]);
@@ -335,6 +335,32 @@ export function Dashboard() {
     });
   };
 
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="text-gray-400">Loading...</div>
+        </div>
+      </div>
+    );
+  }
+
+  // If not authenticated, redirect to login
+  if (!isAuthenticated) {
+    // Redirect to login
+    window.location.href = '/login';
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="text-gray-400">Redirecting to login...</div>
+        </div>
+      </div>
+    );
+  }
+
   // Show loading while checking subscription
   if (subscriptionLoading) {
     return (
@@ -392,12 +418,15 @@ export function Dashboard() {
             </ul>
           </div>
 
-          <a
-            href="/api/create-checkout-session"
+          <button
+            onClick={() => {
+              // Direct navigation to checkout API which will redirect to Stripe
+              window.location.href = '/api/create-checkout-session';
+            }}
             className="block w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors mb-4"
           >
             Subscribe Now - $6.99/month
-          </a>
+          </button>
 
           <button
             onClick={logout}
