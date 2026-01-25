@@ -1,8 +1,206 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { BreadthData, FinvizBreadthData, BreadthHistoryResponse } from '../types';
 
 const API_BASE = '/api';
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+// Market Condition Types
+type MarketCondition = 'GET_OUT' | 'STAY_50' | 'ALL_IN';
+
+interface MarketConditionResult {
+  condition: MarketCondition;
+  score: number;
+  maxScore: number;
+  signals: {
+    bullish: string[];
+    bearish: string[];
+    neutral: string[];
+  };
+}
+
+// Calculate market condition based on breadth data
+function calculateMarketCondition(
+  breadthData: BreadthData | null,
+  finvizData: FinvizBreadthData | null
+): MarketConditionResult {
+  const signals = {
+    bullish: [] as string[],
+    bearish: [] as string[],
+    neutral: [] as string[],
+  };
+
+  let score = 0;
+  const maxScore = 14; // Maximum possible bullish score
+
+  // === POLYGON DATA SIGNALS ===
+
+  // T2108 (% above 40-day MA)
+  if (breadthData?.t2108 != null) {
+    const t2108 = breadthData.t2108;
+    if (t2108 < 25) {
+      // Extremely oversold - contrarian bullish
+      score += 2;
+      signals.bullish.push(`T2108 oversold at ${t2108}% (bounce likely)`);
+    } else if (t2108 >= 25 && t2108 < 40) {
+      score += 1;
+      signals.bullish.push(`T2108 at ${t2108}% (recovering)`);
+    } else if (t2108 >= 40 && t2108 <= 60) {
+      score += 1;
+      signals.neutral.push(`T2108 healthy at ${t2108}%`);
+    } else if (t2108 > 60 && t2108 <= 70) {
+      signals.neutral.push(`T2108 elevated at ${t2108}%`);
+    } else if (t2108 > 70) {
+      score -= 2;
+      signals.bearish.push(`T2108 overbought at ${t2108}% (correction risk)`);
+    }
+  }
+
+  // 5-Day Rolling Ratio
+  if (breadthData?.primary.ratio5Day != null) {
+    const ratio = breadthData.primary.ratio5Day;
+    if (ratio >= 2) {
+      score += 2;
+      signals.bullish.push(`5-day ratio strong at ${ratio.toFixed(1)}`);
+    } else if (ratio >= 1.2) {
+      score += 1;
+      signals.bullish.push(`5-day ratio positive at ${ratio.toFixed(1)}`);
+    } else if (ratio >= 0.8) {
+      signals.neutral.push(`5-day ratio neutral at ${ratio.toFixed(1)}`);
+    } else if (ratio >= 0.5) {
+      score -= 1;
+      signals.bearish.push(`5-day ratio weak at ${ratio.toFixed(1)}`);
+    } else {
+      score -= 2;
+      signals.bearish.push(`5-day ratio bearish at ${ratio.toFixed(1)}`);
+    }
+  }
+
+  // 10-Day Rolling Ratio
+  if (breadthData?.primary.ratio10Day != null) {
+    const ratio = breadthData.primary.ratio10Day;
+    if (ratio >= 1.5) {
+      score += 2;
+      signals.bullish.push(`10-day ratio strong at ${ratio.toFixed(1)}`);
+    } else if (ratio >= 1) {
+      score += 1;
+      signals.bullish.push(`10-day ratio positive at ${ratio.toFixed(1)}`);
+    } else if (ratio >= 0.7) {
+      signals.neutral.push(`10-day ratio neutral at ${ratio.toFixed(1)}`);
+    } else {
+      score -= 2;
+      signals.bearish.push(`10-day ratio bearish at ${ratio.toFixed(1)}`);
+    }
+  }
+
+  // Quarter performance (momentum)
+  if (breadthData?.primary.up25PlusQuarter != null && breadthData?.primary.down25PlusQuarter != null) {
+    const upQ = breadthData.primary.up25PlusQuarter;
+    const downQ = breadthData.primary.down25PlusQuarter;
+    if (upQ > 0 && downQ > 0) {
+      const qRatio = upQ / downQ;
+      if (qRatio >= 2) {
+        score += 1;
+        signals.bullish.push(`Quarter momentum strong (${upQ} up vs ${downQ} down)`);
+      } else if (qRatio < 0.5) {
+        score -= 1;
+        signals.bearish.push(`Quarter momentum weak (${upQ} up vs ${downQ} down)`);
+      }
+    }
+  }
+
+  // === FINVIZ DATA SIGNALS ===
+
+  // High/Low Ratio
+  if (finvizData?.highs.highLowRatio != null) {
+    const hlRatio = finvizData.highs.highLowRatio;
+    if (hlRatio >= 3) {
+      score += 2;
+      signals.bullish.push(`New Highs/Lows ratio excellent at ${hlRatio.toFixed(1)}`);
+    } else if (hlRatio >= 1.5) {
+      score += 1;
+      signals.bullish.push(`More new highs than lows (${hlRatio.toFixed(1)})`);
+    } else if (hlRatio >= 0.7) {
+      signals.neutral.push(`Highs/Lows balanced at ${hlRatio.toFixed(1)}`);
+    } else if (hlRatio >= 0.3) {
+      score -= 1;
+      signals.bearish.push(`More new lows than highs (${hlRatio.toFixed(1)})`);
+    } else {
+      score -= 2;
+      signals.bearish.push(`New lows dominating (${hlRatio.toFixed(1)})`);
+    }
+  }
+
+  // % Above SMA 200
+  if (finvizData?.sma.aboveSMA200 != null && finvizData?.sma.belowSMA200 != null) {
+    const above = finvizData.sma.aboveSMA200;
+    const below = finvizData.sma.belowSMA200;
+    const total = above + below;
+    if (total > 0) {
+      const pctAbove = (above / total) * 100;
+      if (pctAbove >= 65) {
+        score += 2;
+        signals.bullish.push(`${pctAbove.toFixed(0)}% above SMA200 (strong trend)`);
+      } else if (pctAbove >= 50) {
+        score += 1;
+        signals.bullish.push(`${pctAbove.toFixed(0)}% above SMA200 (healthy)`);
+      } else if (pctAbove >= 35) {
+        signals.neutral.push(`${pctAbove.toFixed(0)}% above SMA200 (weakening)`);
+      } else if (pctAbove >= 20) {
+        score -= 1;
+        signals.bearish.push(`Only ${pctAbove.toFixed(0)}% above SMA200`);
+      } else {
+        score -= 2;
+        signals.bearish.push(`Only ${pctAbove.toFixed(0)}% above SMA200 (bearish)`);
+      }
+    }
+  }
+
+  // % Above SMA 50 (shorter-term trend)
+  if (finvizData?.sma.aboveSMA50 != null && finvizData?.sma.belowSMA50 != null) {
+    const above = finvizData.sma.aboveSMA50;
+    const below = finvizData.sma.belowSMA50;
+    const total = above + below;
+    if (total > 0) {
+      const pctAbove = (above / total) * 100;
+      if (pctAbove >= 60) {
+        score += 1;
+        signals.bullish.push(`${pctAbove.toFixed(0)}% above SMA50`);
+      } else if (pctAbove < 40) {
+        score -= 1;
+        signals.bearish.push(`Only ${pctAbove.toFixed(0)}% above SMA50`);
+      }
+    }
+  }
+
+  // Golden Cross vs Death Cross
+  if (finvizData?.trend.goldenCross != null && finvizData?.trend.deathCross != null) {
+    const golden = finvizData.trend.goldenCross;
+    const death = finvizData.trend.deathCross;
+    if (golden > death * 1.5) {
+      score += 1;
+      signals.bullish.push(`More golden crosses (${golden}) than death crosses (${death})`);
+    } else if (death > golden * 1.5) {
+      score -= 1;
+      signals.bearish.push(`More death crosses (${death}) than golden crosses (${golden})`);
+    }
+  }
+
+  // Determine condition based on score
+  // Score ranges: -14 to +14
+  // All In: score >= 5 (strong bullish signals)
+  // Stay 50%: score >= -2 and < 5 (mixed/neutral)
+  // Get Out: score < -2 (bearish signals dominate)
+  let condition: MarketCondition;
+  if (score >= 5) {
+    condition = 'ALL_IN';
+  } else if (score >= -2) {
+    condition = 'STAY_50';
+  } else {
+    condition = 'GET_OUT';
+  }
+
+  return { condition, score, maxScore, signals };
+}
 
 // Check if market is open (9:30 AM - 4:00 PM ET, Mon-Fri)
 function isMarketOpen(): boolean {
@@ -29,6 +227,11 @@ export function BreadthIndicatorsView() {
   const [finvizError, setFinvizError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+
+  // Calculate market condition
+  const marketCondition = useMemo(() => {
+    return calculateMarketCondition(breadthData, finvizData);
+  }, [breadthData, finvizData]);
 
   const fetchBreadthData = useCallback(async () => {
     try {
@@ -318,6 +521,183 @@ export function BreadthIndicatorsView() {
             {error || finvizError}
           </div>
         )}
+      </div>
+
+      {/* Market Condition Indicator */}
+      <div className={`rounded-xl p-5 border-2 ${
+        marketCondition.condition === 'ALL_IN'
+          ? 'bg-gradient-to-r from-green-900/40 to-emerald-900/40 border-green-500/50'
+          : marketCondition.condition === 'STAY_50'
+          ? 'bg-gradient-to-r from-yellow-900/40 to-amber-900/40 border-yellow-500/50'
+          : 'bg-gradient-to-r from-red-900/40 to-rose-900/40 border-red-500/50'
+      }`}>
+        <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
+          {/* Main Indicator */}
+          <div className="flex items-center gap-4">
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center ${
+              marketCondition.condition === 'ALL_IN'
+                ? 'bg-green-500/30 ring-4 ring-green-500/50'
+                : marketCondition.condition === 'STAY_50'
+                ? 'bg-yellow-500/30 ring-4 ring-yellow-500/50'
+                : 'bg-red-500/30 ring-4 ring-red-500/50'
+            }`}>
+              {marketCondition.condition === 'ALL_IN' ? (
+                <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                </svg>
+              ) : marketCondition.condition === 'STAY_50' ? (
+                <svg className="w-8 h-8 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                </svg>
+              ) : (
+                <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                </svg>
+              )}
+            </div>
+            <div>
+              <div className="text-sm text-gray-400 uppercase tracking-wide">Market Condition</div>
+              <div className={`text-2xl font-bold ${
+                marketCondition.condition === 'ALL_IN'
+                  ? 'text-green-400'
+                  : marketCondition.condition === 'STAY_50'
+                  ? 'text-yellow-400'
+                  : 'text-red-400'
+              }`}>
+                {marketCondition.condition === 'ALL_IN' && 'ALL IN'}
+                {marketCondition.condition === 'STAY_50' && 'STAY INVESTED 50%'}
+                {marketCondition.condition === 'GET_OUT' && 'GET OUT / STAY OUT'}
+              </div>
+              <div className="text-sm text-gray-500">
+                Score: {marketCondition.score} / {marketCondition.maxScore}
+              </div>
+            </div>
+          </div>
+
+          {/* Score Bar */}
+          <div className="w-full lg:w-64">
+            <div className="flex justify-between text-xs text-gray-500 mb-1">
+              <span>Bearish</span>
+              <span>Neutral</span>
+              <span>Bullish</span>
+            </div>
+            <div className="h-3 bg-gray-700 rounded-full overflow-hidden relative">
+              {/* Background gradient */}
+              <div className="absolute inset-0 flex">
+                <div className="w-1/3 bg-red-600/30"></div>
+                <div className="w-1/3 bg-yellow-600/30"></div>
+                <div className="w-1/3 bg-green-600/30"></div>
+              </div>
+              {/* Score indicator */}
+              <div
+                className={`absolute top-0 bottom-0 w-2 rounded-full transform -translate-x-1/2 ${
+                  marketCondition.condition === 'ALL_IN'
+                    ? 'bg-green-400'
+                    : marketCondition.condition === 'STAY_50'
+                    ? 'bg-yellow-400'
+                    : 'bg-red-400'
+                }`}
+                style={{
+                  left: `${Math.min(100, Math.max(0, ((marketCondition.score + 14) / 28) * 100))}%`
+                }}
+              ></div>
+            </div>
+            <div className="flex justify-between text-xs text-gray-600 mt-1">
+              <span>-14</span>
+              <span>0</span>
+              <span>+14</span>
+            </div>
+          </div>
+
+          {/* Signal Summary */}
+          <div className="text-sm space-y-1 min-w-[200px]">
+            {marketCondition.signals.bullish.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-green-500"></span>
+                <span className="text-gray-400">{marketCondition.signals.bullish.length} bullish signals</span>
+              </div>
+            )}
+            {marketCondition.signals.neutral.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-yellow-500"></span>
+                <span className="text-gray-400">{marketCondition.signals.neutral.length} neutral signals</span>
+              </div>
+            )}
+            {marketCondition.signals.bearish.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-red-500"></span>
+                <span className="text-gray-400">{marketCondition.signals.bearish.length} bearish signals</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Expandable Signal Details */}
+        <details className="mt-4">
+          <summary className="cursor-pointer text-sm text-gray-400 hover:text-gray-300">
+            View Signal Details
+          </summary>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Bullish Signals */}
+            <div className="bg-green-900/20 rounded-lg p-3">
+              <div className="text-xs font-semibold text-green-400 mb-2 uppercase">Bullish Signals</div>
+              {marketCondition.signals.bullish.length > 0 ? (
+                <ul className="text-xs text-gray-400 space-y-1">
+                  {marketCondition.signals.bullish.map((signal, idx) => (
+                    <li key={idx} className="flex items-start gap-1">
+                      <span className="text-green-400 mt-0.5">+</span>
+                      <span>{signal}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="text-xs text-gray-500">No bullish signals</div>
+              )}
+            </div>
+
+            {/* Neutral Signals */}
+            <div className="bg-yellow-900/20 rounded-lg p-3">
+              <div className="text-xs font-semibold text-yellow-400 mb-2 uppercase">Neutral Signals</div>
+              {marketCondition.signals.neutral.length > 0 ? (
+                <ul className="text-xs text-gray-400 space-y-1">
+                  {marketCondition.signals.neutral.map((signal, idx) => (
+                    <li key={idx} className="flex items-start gap-1">
+                      <span className="text-yellow-400 mt-0.5">=</span>
+                      <span>{signal}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="text-xs text-gray-500">No neutral signals</div>
+              )}
+            </div>
+
+            {/* Bearish Signals */}
+            <div className="bg-red-900/20 rounded-lg p-3">
+              <div className="text-xs font-semibold text-red-400 mb-2 uppercase">Bearish Signals</div>
+              {marketCondition.signals.bearish.length > 0 ? (
+                <ul className="text-xs text-gray-400 space-y-1">
+                  {marketCondition.signals.bearish.map((signal, idx) => (
+                    <li key={idx} className="flex items-start gap-1">
+                      <span className="text-red-400 mt-0.5">-</span>
+                      <span>{signal}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="text-xs text-gray-500">No bearish signals</div>
+              )}
+            </div>
+          </div>
+
+          {/* Methodology Note */}
+          <div className="mt-3 p-2 bg-gray-800/50 rounded text-xs text-gray-500">
+            <strong className="text-gray-400">Methodology:</strong> Scores multiple breadth indicators including T2108, rolling ratios,
+            new highs/lows, and SMA positioning. Score range: -14 (extreme bearish) to +14 (extreme bullish).
+            <br/>
+            <strong className="text-gray-400">Thresholds:</strong> ALL IN (score {'>'}= 5), STAY 50% (-2 to 4), GET OUT ({'<'} -2)
+          </div>
+        </details>
       </div>
 
       {/* Main Content - Side by Side */}
