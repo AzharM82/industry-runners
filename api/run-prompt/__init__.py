@@ -558,16 +558,43 @@ If the stock ticker is not recognized or data is limited, still provide your bes
             # Text-only request
             message_content = user_text
 
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=4096,
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": message_content}
-            ]
-        )
+        # Enable web search for research prompts (deep-research, halal)
+        # This allows Claude to search the internet for stock information
+        use_web_search = prompt_type in ['deep-research', 'halal']
 
-        result = response.content[0].text
+        if use_web_search:
+            logging.info(f"Enabling web search for {prompt_type}")
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=16000,
+                system=system_prompt,
+                tools=[
+                    {
+                        "type": "web_search_20250305",
+                        "name": "web_search",
+                        "max_uses": 5
+                    }
+                ],
+                messages=[
+                    {"role": "user", "content": message_content}
+                ]
+            )
+        else:
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=4096,
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": message_content}
+                ]
+            )
+
+        # Extract text from response (may contain multiple content blocks with web search)
+        result_parts = []
+        for block in response.content:
+            if hasattr(block, 'text'):
+                result_parts.append(block.text)
+        result = "\n".join(result_parts) if result_parts else response.content[0].text
 
         # Cache the result (24 hours) - cache all non-image requests
         if redis_client and not has_image:
