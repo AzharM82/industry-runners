@@ -81,9 +81,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             )
 
     except Exception as e:
-        logging.error(f"Admin report error: {e}")
+        import traceback
+        error_details = traceback.format_exc()
+        logging.error(f"Admin report error: {e}\n{error_details}")
         return func.HttpResponse(
-            json.dumps({'error': str(e)}),
+            json.dumps({'error': str(e), 'details': error_details}),
             status_code=500,
             mimetype='application/json'
         )

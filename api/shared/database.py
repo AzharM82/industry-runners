@@ -80,10 +80,25 @@ def init_schema():
     CREATE INDEX IF NOT EXISTS idx_user_logins_user ON user_logins(user_id);
     """
 
+    # Migration SQL for existing tables
+    migration_sql = """
+    -- Add last_login_at column to users table if it doesn't exist
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'users' AND column_name = 'last_login_at'
+        ) THEN
+            ALTER TABLE users ADD COLUMN last_login_at TIMESTAMP;
+        END IF;
+    END $$;
+    """
+
     try:
         conn = get_connection()
         cur = conn.cursor()
         cur.execute(schema_sql)
+        cur.execute(migration_sql)
         conn.commit()
         cur.close()
         conn.close()
@@ -264,13 +279,13 @@ def get_daily_report(date: str = None):
     """, (date,))
     new_signups = [dict(row) for row in cur.fetchall()]
 
-    # Logins today (unique users)
+    # Logins today (unique users with their last login time)
     cur.execute("""
-        SELECT DISTINCT ON (email) email, MAX(created_at) as last_login
+        SELECT email, MAX(created_at) as last_login
         FROM user_logins
         WHERE DATE(created_at) = %s
         GROUP BY email
-        ORDER BY email, last_login DESC
+        ORDER BY last_login DESC
     """, (date,))
     logins_today = [dict(row) for row in cur.fetchall()]
 
@@ -326,9 +341,19 @@ def get_all_users():
     cur.execute("""
         SELECT
             u.id, u.email, u.name, u.created_at, u.last_login_at,
-            (SELECT COUNT(*) FROM user_logins WHERE user_id = u.id) as login_count,
-            (SELECT COUNT(*) FROM usage WHERE user_id = u.id) as prompt_count
+            COALESCE(l.login_count, 0) as login_count,
+            COALESCE(p.prompt_count, 0) as prompt_count
         FROM users u
+        LEFT JOIN (
+            SELECT user_id, COUNT(*) as login_count
+            FROM user_logins
+            GROUP BY user_id
+        ) l ON l.user_id = u.id
+        LEFT JOIN (
+            SELECT user_id, COUNT(*) as prompt_count
+            FROM usage
+            GROUP BY user_id
+        ) p ON p.user_id = u.id
         ORDER BY u.created_at DESC
     """)
     users = [dict(row) for row in cur.fetchall()]
