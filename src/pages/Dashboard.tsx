@@ -12,6 +12,7 @@ import { BreadthIndicatorsView } from '../components/BreadthIndicatorsView';
 import { TradeManagementView } from '../components/TradeManagementView';
 import { InvestmentTrackerView } from '../components/InvestmentTrackerView';
 import { PromptRunner } from '../components/PromptRunner';
+import { UsageGuide } from '../components/UsageGuide';
 import { useAuth, logout } from '../hooks';
 
 interface SubscriptionStatus {
@@ -107,6 +108,7 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [selectedStock, setSelectedStock] = useState<string | null>(null);
+  const [showUsageGuide, setShowUsageGuide] = useState(false);
   const [selectedStockDetails, setSelectedStockDetails] = useState<StockQuote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [marketOpen, setMarketOpen] = useState(isMarketOpen());
@@ -488,6 +490,12 @@ export function Dashboard() {
                 Feedback
               </a>
               <button
+                onClick={() => setShowUsageGuide(true)}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
+              >
+                Usage Guide
+              </button>
+              <button
                 onClick={logout}
                 className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
               >
@@ -669,6 +677,9 @@ export function Dashboard() {
           }}
         />
       )}
+
+      {/* Usage Guide Modal */}
+      <UsageGuide isOpen={showUsageGuide} onClose={() => setShowUsageGuide(false)} />
 
       {/* Footer */}
       <footer className="border-t border-gray-800 py-4 mt-8">
