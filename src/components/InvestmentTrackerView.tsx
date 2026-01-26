@@ -638,23 +638,27 @@ export function InvestmentTrackerView() {
       <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
         <div className="p-5 border-b border-gray-700 flex justify-between items-center">
           <h2 className="text-lg font-semibold text-white">My Stocks ({stocks.length}/12)</h2>
-          {isAdmin && (
-            <button
-              onClick={() => {
-                if (availableQuarters.length === 0) {
-                  alert('All 12 quarters already have a stock!');
-                  return;
-                }
-                setNewStock({ ...newStock, quarter: availableQuarters[0] });
-                setShowAddModal(true);
-              }}
-              disabled={stocks.length >= 12}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition"
-            >
-              <Plus className="w-4 h-4" />
-              Add New Stock
-            </button>
-          )}
+          <button
+            onClick={() => {
+              if (!isAdmin) return;
+              if (availableQuarters.length === 0) {
+                alert('All 12 quarters already have a stock!');
+                return;
+              }
+              setNewStock({ ...newStock, quarter: availableQuarters[0] });
+              setShowAddModal(true);
+            }}
+            disabled={stocks.length >= 12 || !isAdmin}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+              isAdmin
+                ? 'bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed'
+                : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+            }`}
+            title={isAdmin ? '' : 'Admin only'}
+          >
+            <Plus className="w-4 h-4" />
+            Add New Stock
+          </button>
         </div>
 
         {stocks.length > 0 ? (
@@ -696,18 +700,15 @@ export function InvestmentTrackerView() {
                     <div className="col-span-1 text-right font-medium text-white flex items-center justify-end">{details.totalShares.toFixed(2)}</div>
                     <div className="col-span-1 text-right text-gray-300 flex items-center justify-end">${details.avgPrice.toFixed(2)}</div>
                     <div className="col-span-1 text-right flex items-center justify-end">
-                      {isAdmin ? (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleUpdatePrice(stock.id); }}
-                          className="text-blue-400 hover:text-blue-300 font-medium"
-                          title="Click to update"
-                        >
-                          ${stock.currentPrice.toFixed(2)}
-                          <RefreshCw className="w-3 h-3 inline ml-1" />
-                        </button>
-                      ) : (
-                        <span className="text-gray-300 font-medium">${stock.currentPrice.toFixed(2)}</span>
-                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); isAdmin && handleUpdatePrice(stock.id); }}
+                        className={`font-medium ${isAdmin ? 'text-blue-400 hover:text-blue-300' : 'text-gray-300 cursor-not-allowed'}`}
+                        title={isAdmin ? "Click to update" : "Admin only"}
+                        disabled={!isAdmin}
+                      >
+                        ${stock.currentPrice.toFixed(2)}
+                        <RefreshCw className={`w-3 h-3 inline ml-1 ${isAdmin ? '' : 'opacity-30'}`} />
+                      </button>
                     </div>
                     <div className="col-span-1 text-right text-gray-300 flex items-center justify-end">{formatCurrency(details.totalInvested)}</div>
                     <div className="col-span-1 text-right font-medium text-white flex items-center justify-end">{formatCurrency(details.currentValue)}</div>
@@ -719,17 +720,14 @@ export function InvestmentTrackerView() {
                       <span className="px-2 py-1 bg-gray-700 rounded text-sm text-gray-300">{details.remainingMonths}</span>
                     </div>
                     <div className="col-span-1 text-center flex items-center justify-center">
-                      {isAdmin ? (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteStock(stock.id); }}
-                          className="p-1.5 text-red-400 hover:bg-red-900/50 rounded"
-                          title="Delete stock"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      ) : (
-                        <span className="text-gray-600">-</span>
-                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); isAdmin && handleDeleteStock(stock.id); }}
+                        className={`p-1.5 rounded ${isAdmin ? 'text-red-400 hover:bg-red-900/50' : 'text-gray-600 cursor-not-allowed'}`}
+                        title={isAdmin ? "Delete stock" : "Admin only"}
+                        disabled={!isAdmin}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
 
@@ -778,19 +776,27 @@ export function InvestmentTrackerView() {
                             </div>
                           </div>
 
-                          {/* Add Buy Button - Admin Only */}
-                          {isAdmin && details.remainingBudget > 0 && nextMonth && (
+                          {/* Add Buy Button */}
+                          {details.remainingBudget > 0 && nextMonth && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setShowBuyModal({ stock, month: nextMonth });
-                                setBuyForm({
-                                  shares: '',
-                                  pricePerShare: String(stock.currentPrice),
-                                  date: new Date().toISOString().split('T')[0]
-                                });
+                                if (isAdmin) {
+                                  setShowBuyModal({ stock, month: nextMonth });
+                                  setBuyForm({
+                                    shares: '',
+                                    pricePerShare: String(stock.currentPrice),
+                                    date: new Date().toISOString().split('T')[0]
+                                  });
+                                }
                               }}
-                              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                              className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg transition ${
+                                isAdmin
+                                  ? 'bg-green-600 text-white hover:bg-green-700'
+                                  : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                              }`}
+                              disabled={!isAdmin}
+                              title={isAdmin ? '' : 'Admin only'}
                             >
                               <Plus className="w-4 h-4" />
                               Add Buy for {formatMonth(nextMonth)}
@@ -799,11 +805,6 @@ export function InvestmentTrackerView() {
                           {details.remainingBudget <= 0 && (
                             <div className="text-center py-3 bg-green-900/20 text-green-400 rounded-lg">
                               All $10k invested in this stock
-                            </div>
-                          )}
-                          {!isAdmin && details.remainingBudget > 0 && (
-                            <div className="text-center py-3 bg-gray-700/30 text-gray-400 rounded-lg text-sm">
-                              {formatCurrency(details.remainingBudget)} remaining
                             </div>
                           )}
                         </div>
@@ -817,9 +818,7 @@ export function InvestmentTrackerView() {
           </div>
         ) : (
           <div className="p-8 text-center text-gray-500">
-            {isAdmin
-              ? 'No stocks yet. Click "Add New Stock" to start building your portfolio.'
-              : 'No stocks in the portfolio yet. Check back later for updates.'}
+            No stocks yet. {isAdmin ? 'Click "Add New Stock" to start building your portfolio.' : 'The portfolio is empty.'}
           </div>
         )}
       </div>
