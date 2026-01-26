@@ -72,14 +72,16 @@ export function AdminDashboard() {
     checkAdmin();
   }, []);
 
-  // Fetch daily report
+  // Fetch daily report (using admin-user endpoint)
   const fetchReport = async (date: string) => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/admin-report?date=${date}`);
+      const response = await fetch(`/api/admin-user?report=daily&date=${date}`);
       if (response.ok) {
         const data = await response.json();
         setReport(data);
+      } else {
+        console.error('Failed to fetch report:', response.status);
       }
     } catch (err) {
       console.error('Failed to fetch report:', err);
@@ -88,13 +90,15 @@ export function AdminDashboard() {
     }
   };
 
-  // Fetch all users
+  // Fetch all users (using admin-user endpoint)
   const fetchUsers = async () => {
     try {
-      const response = await fetch('/api/admin-report?type=users');
+      const response = await fetch('/api/admin-user?report=users');
       if (response.ok) {
         const data = await response.json();
         setUsers(data.users || []);
+      } else {
+        console.error('Failed to fetch users:', response.status);
       }
     } catch (err) {
       console.error('Failed to fetch users:', err);

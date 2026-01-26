@@ -1,16 +1,23 @@
 """
-Admin User Management API - For debugging subscription issues
+Admin User Management API - User management and analytics reports
+Endpoints:
+  GET ?report=daily           - Daily analytics report (today)
+  GET ?report=daily&date=X    - Daily report for specific date
+  GET ?report=users           - All users list with stats
+  GET ?email=X                - Get specific user details
+  DELETE ?email=X             - Delete specific user
 """
 
 import json
 import os
 import base64
 import logging
+from datetime import datetime
 import azure.functions as func
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from shared.database import get_connection, get_cursor
+from shared.database import get_connection, get_cursor, init_schema
 from shared.admin import is_admin
 
 
@@ -26,8 +33,137 @@ def get_user_from_auth(req):
         return None
 
 
+def json_serializer(obj):
+    """JSON serializer for datetime objects."""
+    if hasattr(obj, 'isoformat'):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+
+def get_daily_report(date: str = None):
+    """Get daily analytics report."""
+    if date is None:
+        date = datetime.now().strftime('%Y-%m-%d')
+
+    conn = get_connection()
+    cur = get_cursor(conn)
+
+    # New signups today
+    cur.execute("""
+        SELECT id, email, name, created_at
+        FROM users
+        WHERE DATE(created_at) = %s
+        ORDER BY created_at DESC
+    """, (date,))
+    new_signups = [dict(row) for row in cur.fetchall()]
+
+    # Check if user_logins table exists and get login data
+    logins_today = []
+    total_logins = 0
+    active_users_7d = 0
+
+    try:
+        cur.execute("""
+            SELECT email, MAX(created_at) as last_login
+            FROM user_logins
+            WHERE DATE(created_at) = %s
+            GROUP BY email
+            ORDER BY last_login DESC
+        """, (date,))
+        logins_today = [dict(row) for row in cur.fetchall()]
+
+        cur.execute("""
+            SELECT COUNT(*) as count FROM user_logins
+            WHERE DATE(created_at) = %s
+        """, (date,))
+        total_logins = cur.fetchone()['count']
+
+        cur.execute("""
+            SELECT COUNT(DISTINCT user_id) as count
+            FROM user_logins
+            WHERE created_at > NOW() - INTERVAL '7 days'
+        """)
+        active_users_7d = cur.fetchone()['count']
+    except Exception as e:
+        logging.warning(f"user_logins table may not exist: {e}")
+
+    # AI prompts used today
+    cur.execute("""
+        SELECT prompt_type, COUNT(*) as count
+        FROM usage
+        WHERE DATE(created_at) = %s
+        GROUP BY prompt_type
+    """, (date,))
+    prompts_used = {row['prompt_type']: row['count'] for row in cur.fetchall()}
+
+    # Total users
+    cur.execute("SELECT COUNT(*) as count FROM users")
+    total_users = cur.fetchone()['count']
+
+    cur.close()
+    conn.close()
+
+    return {
+        'date': date,
+        'new_signups': len(new_signups),
+        'new_signup_list': new_signups,
+        'unique_logins': len(logins_today),
+        'total_logins': total_logins,
+        'login_list': logins_today,
+        'prompts_used': prompts_used,
+        'total_users': total_users,
+        'active_users_7d': active_users_7d
+    }
+
+
+def get_all_users():
+    """Get all users with stats."""
+    conn = get_connection()
+    cur = get_cursor(conn)
+
+    # Get basic user data first
+    cur.execute("""
+        SELECT id, email, name, created_at
+        FROM users
+        ORDER BY created_at DESC
+    """)
+    users = [dict(row) for row in cur.fetchall()]
+
+    # Try to get login counts if table exists
+    try:
+        cur.execute("""
+            SELECT user_id, COUNT(*) as login_count
+            FROM user_logins
+            GROUP BY user_id
+        """)
+        login_counts = {str(row['user_id']): row['login_count'] for row in cur.fetchall()}
+    except:
+        login_counts = {}
+
+    # Get prompt counts
+    cur.execute("""
+        SELECT user_id, COUNT(*) as prompt_count
+        FROM usage
+        GROUP BY user_id
+    """)
+    prompt_counts = {str(row['user_id']): row['prompt_count'] for row in cur.fetchall()}
+
+    # Merge counts into users
+    for user in users:
+        user_id = str(user['id'])
+        user['login_count'] = login_counts.get(user_id, 0)
+        user['prompt_count'] = prompt_counts.get(user_id, 0)
+
+    cur.close()
+    conn.close()
+    return users
+
+
 def main(req: func.HttpRequest) -> func.HttpResponse:
     try:
+        # Initialize schema (creates tables if needed)
+        init_schema()
+
         # Get authenticated user (must be admin)
         auth_user = get_user_from_auth(req)
         if not auth_user:
@@ -45,7 +181,25 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype='application/json'
             )
 
-        # Get target email from query param
+        # Check for report parameter first
+        report_type = req.params.get('report', '').lower()
+
+        if report_type == 'daily':
+            date = req.params.get('date')  # Optional: YYYY-MM-DD
+            report = get_daily_report(date)
+            return func.HttpResponse(
+                json.dumps(report, default=json_serializer),
+                mimetype='application/json'
+            )
+
+        if report_type == 'users':
+            users = get_all_users()
+            return func.HttpResponse(
+                json.dumps({'users': users}, default=json_serializer),
+                mimetype='application/json'
+            )
+
+        # Original functionality: Get target email from query param
         target_email = req.params.get('email', '').lower()
         if not target_email:
             return func.HttpResponse(
