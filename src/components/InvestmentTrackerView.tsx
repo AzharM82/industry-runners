@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { TrendingUp, Plus, Trash2, DollarSign, Calendar, RefreshCw, ChevronDown, ChevronRight, BookOpen, Target, CheckCircle, AlertTriangle, Clock, BarChart3, Lock } from 'lucide-react';
+import { TrendingUp, Plus, Trash2, DollarSign, Calendar, RefreshCw, ChevronDown, ChevronRight, BookOpen, Target, CheckCircle, AlertTriangle, Clock, BarChart3, Lock, Loader2, Cloud } from 'lucide-react';
 
 type InvestmentTab = 'execution' | 'summary' | 'system';
 const API_BASE = '/api';
@@ -31,6 +31,7 @@ interface Settings {
 
 const STORAGE_KEY = 'multiBaggerTracker:v2';
 const MAX_INVESTMENT_PER_STOCK = 10000; // $10k limit per stock
+const INVESTMENTS_API = '/api/investments';
 
 // Generate all months from start to end
 function generateMonths(startDate: string, endDate: string): string[] {
@@ -112,6 +113,9 @@ export function InvestmentTrackerView() {
   const [activeTab, setActiveTab] = useState<InvestmentTab>('system');
   const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   const allMonths = useMemo(() => generateMonths(settings.startDate, settings.endDate), [settings.startDate, settings.endDate]);
   const allQuarters = useMemo(() => generateQuarters(settings.startDate, settings.endDate), [settings.startDate, settings.endDate]);
@@ -131,28 +135,83 @@ export function InvestmentTrackerView() {
       });
   }, []);
 
-  // Load data from localStorage
+  // Load data from API (shared across all users)
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const data = JSON.parse(saved);
-        if (data.stocks) setStocks(data.stocks);
-        if (data.settings) setSettings(data.settings);
+    const loadData = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(INVESTMENTS_API);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.stocks) setStocks(data.stocks);
+          if (data.settings) setSettings(data.settings);
+          setDataLoaded(true);
+        } else {
+          // Fall back to localStorage if API fails
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (saved) {
+            const data = JSON.parse(saved);
+            if (data.stocks) setStocks(data.stocks);
+            if (data.settings) setSettings(data.settings);
+          }
+          setDataLoaded(true);
+        }
+      } catch (e) {
+        console.error('Error loading from API:', e);
+        // Fall back to localStorage
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (saved) {
+            const data = JSON.parse(saved);
+            if (data.stocks) setStocks(data.stocks);
+            if (data.settings) setSettings(data.settings);
+          }
+        } catch (localErr) {
+          console.error('Error loading from localStorage:', localErr);
+        }
+        setDataLoaded(true);
+      } finally {
+        setIsLoading(false);
       }
-    } catch (e) {
-      console.error('Error loading data:', e);
-    }
+    };
+
+    loadData();
   }, []);
 
-  // Save data to localStorage
+  // Save data to API (admin) and localStorage (backup)
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ stocks, settings }));
-    } catch (e) {
-      console.error('Error saving data:', e);
-    }
-  }, [stocks, settings]);
+    // Skip saving on initial load
+    if (!dataLoaded) return;
+
+    const saveData = async () => {
+      // Always save to localStorage as backup
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ stocks, settings }));
+      } catch (e) {
+        console.error('Error saving to localStorage:', e);
+      }
+
+      // Save to API if admin
+      if (isAdmin) {
+        setIsSaving(true);
+        try {
+          await fetch(INVESTMENTS_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stocks, settings })
+          });
+        } catch (e) {
+          console.error('Error saving to API:', e);
+        } finally {
+          setIsSaving(false);
+        }
+      }
+    };
+
+    // Debounce saves
+    const timeoutId = setTimeout(saveData, 500);
+    return () => clearTimeout(timeoutId);
+  }, [stocks, settings, isAdmin, dataLoaded]);
 
   // Check which quarters already have a stock
   const usedQuarters = useMemo(() => {
@@ -357,6 +416,19 @@ export function InvestmentTrackerView() {
     return unfilled[0] || stockMonths.find(m => !filledMonths.includes(m)) || null;
   }, [allMonths, currentMonth]);
 
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="bg-gray-800 rounded-xl border border-gray-700 p-12">
+        <div className="flex flex-col items-center justify-center text-center">
+          <Loader2 className="w-10 h-10 text-blue-400 animate-spin mb-4" />
+          <div className="text-lg font-medium text-white">Loading Portfolio...</div>
+          <div className="text-sm text-gray-400 mt-1">Fetching investment data from server</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header with Tabs */}
@@ -369,12 +441,26 @@ export function InvestmentTrackerView() {
                 1 new stock per quarter | Monthly investments until Dec 2028 | 12 stocks total
               </p>
             </div>
-            {!isAdmin && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-700/50 rounded-lg text-sm text-gray-400">
-                <Lock className="w-4 h-4" />
-                View Only
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {isSaving && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-900/30 rounded-lg text-sm text-blue-400">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving...
+                </div>
+              )}
+              {!isSaving && isAdmin && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-green-900/30 rounded-lg text-sm text-green-400">
+                  <Cloud className="w-4 h-4" />
+                  Synced
+                </div>
+              )}
+              {!isAdmin && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-700/50 rounded-lg text-sm text-gray-400">
+                  <Lock className="w-4 h-4" />
+                  View Only
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex border-b border-gray-700">
