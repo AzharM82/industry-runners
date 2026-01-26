@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { TrendingUp, Plus, Trash2, DollarSign, Calendar, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { TrendingUp, Plus, Trash2, DollarSign, Calendar, RefreshCw, ChevronDown, ChevronRight, BookOpen, Target, CheckCircle, AlertTriangle, Clock, BarChart3 } from 'lucide-react';
+
+type InvestmentTab = 'execution' | 'summary' | 'system';
 
 interface MonthlyBuy {
   month: string; // YYYY-MM format
@@ -106,7 +108,8 @@ export function InvestmentTrackerView() {
     date: new Date().toISOString().split('T')[0]
   });
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
-  const [calendarMonth, setCalendarMonth] = useState(() => getCurrentMonth());
+  const [activeTab, setActiveTab] = useState<InvestmentTab>('execution');
+  const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
 
   const allMonths = useMemo(() => generateMonths(settings.startDate, settings.endDate), [settings.startDate, settings.endDate]);
   const allQuarters = useMemo(() => generateQuarters(settings.startDate, settings.endDate), [settings.startDate, settings.endDate]);
@@ -312,31 +315,48 @@ export function InvestmentTrackerView() {
 
   const currentMonth = getCurrentMonth();
 
-  // Generate calendar data for a given month
-  const getCalendarData = useCallback((monthStr: string) => {
-    const [year, month] = monthStr.split('-').map(Number);
-    const firstDay = new Date(year, month - 1, 1);
-    const lastDay = new Date(year, month, 0);
-    const daysInMonth = lastDay.getDate();
-    const startDayOfWeek = firstDay.getDay(); // 0 = Sunday
+  // Generate yearly calendar data with monthly blocks
+  const getYearlyCalendarData = useCallback((year: number) => {
+    const monthsData: {
+      month: string;
+      monthName: string;
+      buys: { ticker: string; amount: number; shares: number; date: string; isNewStock: boolean }[];
+      newStockAdded: string | null;
+      totalAmount: number;
+    }[] = [];
 
-    // Get all buys in this month
-    const buysInMonth: { date: string; ticker: string; amount: number; shares: number; price: number }[] = [];
-    stocks.forEach(stock => {
-      stock.monthlyBuys.forEach(buy => {
-        if (buy.date.startsWith(monthStr)) {
-          buysInMonth.push({
-            date: buy.date,
-            ticker: stock.ticker,
-            amount: buy.amount,
-            shares: buy.shares,
-            price: buy.pricePerShare
-          });
+    for (let m = 1; m <= 12; m++) {
+      const monthStr = `${year}-${String(m).padStart(2, '0')}`;
+      const monthName = new Date(year, m - 1, 1).toLocaleDateString('en-US', { month: 'short' });
+
+      const buys: { ticker: string; amount: number; shares: number; date: string; isNewStock: boolean }[] = [];
+      let newStockAdded: string | null = null;
+
+      stocks.forEach(stock => {
+        // Check if this stock was added in this month
+        if (stock.addedMonth === monthStr) {
+          newStockAdded = stock.ticker;
         }
-      });
-    });
 
-    return { year, month, daysInMonth, startDayOfWeek, buysInMonth };
+        stock.monthlyBuys.forEach(buy => {
+          if (buy.month === monthStr) {
+            buys.push({
+              ticker: stock.ticker,
+              amount: buy.amount,
+              shares: buy.shares,
+              date: buy.date,
+              isNewStock: stock.addedMonth === monthStr && stock.monthlyBuys[0]?.month === monthStr
+            });
+          }
+        });
+      });
+
+      const totalAmount = buys.reduce((sum, b) => sum + b.amount, 0);
+
+      monthsData.push({ month: monthStr, monthName, buys, newStockAdded, totalAmount });
+    }
+
+    return monthsData;
   }, [stocks]);
 
   // Get next unfilled month for a stock
@@ -349,14 +369,230 @@ export function InvestmentTrackerView() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-        <h1 className="text-2xl font-bold text-white mb-2">Multi-Bagger Investment Tracker</h1>
-        <p className="text-gray-400">
-          1 new stock per quarter | Monthly investments until Dec 2028 | 12 stocks total
-        </p>
+      {/* Header with Tabs */}
+      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+        <div className="p-6 border-b border-gray-700">
+          <h1 className="text-2xl font-bold text-white mb-2">Multi-Bagger Investment Tracker</h1>
+          <p className="text-gray-400">
+            1 new stock per quarter | Monthly investments until Dec 2028 | 12 stocks total
+          </p>
+        </div>
+        <div className="flex border-b border-gray-700">
+          <button
+            onClick={() => setActiveTab('execution')}
+            className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition ${
+              activeTab === 'execution'
+                ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-700/30'
+                : 'text-gray-400 hover:text-white hover:bg-gray-700/20'
+            }`}
+          >
+            <TrendingUp className="w-4 h-4" />
+            Investment Execution
+          </button>
+          <button
+            onClick={() => setActiveTab('summary')}
+            className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition ${
+              activeTab === 'summary'
+                ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-700/30'
+                : 'text-gray-400 hover:text-white hover:bg-gray-700/20'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            Investment Summary
+          </button>
+          <button
+            onClick={() => setActiveTab('system')}
+            className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition ${
+              activeTab === 'system'
+                ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-700/30'
+                : 'text-gray-400 hover:text-white hover:bg-gray-700/20'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            Investment System
+          </button>
+        </div>
       </div>
 
+      {/* Investment System Tab */}
+      {activeTab === 'system' && (
+        <div className="space-y-6">
+          {/* Concept Overview */}
+          <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-blue-600/20 rounded-lg">
+                <Target className="w-6 h-6 text-blue-400" />
+              </div>
+              <h2 className="text-xl font-bold text-white">The Multi-Bagger Investment System</h2>
+            </div>
+            <p className="text-gray-300 leading-relaxed mb-4">
+              This system is designed to build a concentrated portfolio of high-conviction stocks over a 3-year period,
+              using dollar-cost averaging to minimize timing risk while maintaining discipline in position sizing.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+              <div className="bg-gray-700/50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-blue-400">12</div>
+                <div className="text-sm text-gray-400 mt-1">Total Stocks</div>
+              </div>
+              <div className="bg-gray-700/50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-green-400">$10K</div>
+                <div className="text-sm text-gray-400 mt-1">Per Stock Max</div>
+              </div>
+              <div className="bg-gray-700/50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-purple-400">3 Yrs</div>
+                <div className="text-sm text-gray-400 mt-1">Investment Period</div>
+              </div>
+            </div>
+          </div>
+
+          {/* How It Works */}
+          <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Clock className="w-5 h-5 text-gray-400" />
+              How It Works
+            </h3>
+            <div className="space-y-4">
+              <div className="flex gap-4">
+                <div className="flex-shrink-0 w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold">1</div>
+                <div>
+                  <h4 className="font-medium text-white">Add One Stock Per Quarter</h4>
+                  <p className="text-gray-400 text-sm mt-1">
+                    Every quarter (3 months), identify and add ONE high-conviction stock to the portfolio.
+                    This gives you 12 quarters = 12 stocks over 3 years.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <div className="flex-shrink-0 w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold">2</div>
+                <div>
+                  <h4 className="font-medium text-white">Initial Investment: $5,000</h4>
+                  <p className="text-gray-400 text-sm mt-1">
+                    When you add a new stock, make an initial investment of approximately $5,000.
+                    This establishes your position in the stock.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <div className="flex-shrink-0 w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold">3</div>
+                <div>
+                  <h4 className="font-medium text-white">Monthly DCA: Remaining $5,000</h4>
+                  <p className="text-gray-400 text-sm mt-1">
+                    After the initial buy, continue investing monthly in the same stock until you reach the $10,000 total limit.
+                    Spread the remaining $5,000 across the months until December 2028.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <div className="flex-shrink-0 w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold">4</div>
+                <div>
+                  <h4 className="font-medium text-white">Track & Hold Until Dec 2028</h4>
+                  <p className="text-gray-400 text-sm mt-1">
+                    Continue the monthly investments for all stocks until December 2028.
+                    The goal is to find multi-bagger opportunities that can grow significantly over this period.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Rules */}
+          <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-green-400" />
+              Investment Rules
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 p-3 bg-green-900/20 border border-green-800/50 rounded-lg">
+                  <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-medium text-green-300">Only 1 Stock Per Quarter</div>
+                    <div className="text-sm text-gray-400">Forces discipline and thorough research before adding</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 p-3 bg-green-900/20 border border-green-800/50 rounded-lg">
+                  <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-medium text-green-300">$10,000 Maximum Per Stock</div>
+                    <div className="text-sm text-gray-400">Prevents over-concentration in any single position</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 p-3 bg-green-900/20 border border-green-800/50 rounded-lg">
+                  <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-medium text-green-300">Monthly DCA Required</div>
+                    <div className="text-sm text-gray-400">Consistent investing reduces timing risk</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 p-3 bg-green-900/20 border border-green-800/50 rounded-lg">
+                  <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-medium text-green-300">Buy Prices Are Locked</div>
+                    <div className="text-sm text-gray-400">No editing past transactions - what's done is done</div>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 p-3 bg-red-900/20 border border-red-800/50 rounded-lg">
+                  <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-medium text-red-300">No Selling Before Dec 2028</div>
+                    <div className="text-sm text-gray-400">Commit to the long-term thesis</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 p-3 bg-red-900/20 border border-red-800/50 rounded-lg">
+                  <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-medium text-red-300">No Adding More Than 1 Stock/Quarter</div>
+                    <div className="text-sm text-gray-400">Even if you see great opportunities</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 p-3 bg-red-900/20 border border-red-800/50 rounded-lg">
+                  <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-medium text-red-300">No Exceeding $10K Per Stock</div>
+                    <div className="text-sm text-gray-400">Stick to the position sizing rules</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 p-3 bg-yellow-900/20 border border-yellow-800/50 rounded-lg">
+                  <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-medium text-yellow-300">Don't Skip Monthly Investments</div>
+                    <div className="text-sm text-gray-400">Consistency is key to DCA success</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Expected Outcome */}
+          <div className="bg-gradient-to-br from-purple-900/30 to-blue-900/30 rounded-xl p-6 border border-purple-700/50">
+            <h3 className="text-lg font-semibold text-white mb-3">Expected Portfolio by Dec 2028</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+              <div>
+                <div className="text-2xl font-bold text-white">12</div>
+                <div className="text-sm text-gray-400">Stocks</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-white">$120K</div>
+                <div className="text-sm text-gray-400">Total Invested</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-green-400">?</div>
+                <div className="text-sm text-gray-400">Portfolio Value</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-blue-400">Goal: 2-10x</div>
+                <div className="text-sm text-gray-400">Return Target</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Investment Execution Tab */}
+      {activeTab === 'execution' && (
+        <>
       {/* Portfolio Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl p-5 text-white col-span-2">
@@ -705,142 +941,6 @@ export function InvestmentTrackerView() {
         </div>
       </div>
 
-      {/* Monthly Calendar View */}
-      {stocks.length > 0 && (
-        <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-          <div className="p-5 border-b border-gray-700 flex justify-between items-center">
-            <div>
-              <h2 className="text-lg font-semibold text-white">Investment Calendar</h2>
-              <p className="text-sm text-gray-400 mt-1">View investments by month</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  const [year, month] = calendarMonth.split('-').map(Number);
-                  const prevMonth = month === 1 ? 12 : month - 1;
-                  const prevYear = month === 1 ? year - 1 : year;
-                  setCalendarMonth(`${prevYear}-${String(prevMonth).padStart(2, '0')}`);
-                }}
-                className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
-              >
-                <ChevronRight className="w-4 h-4 rotate-180 text-gray-300" />
-              </button>
-              <span className="text-white font-medium min-w-[120px] text-center">
-                {formatMonth(calendarMonth)}
-              </span>
-              <button
-                onClick={() => {
-                  const [year, month] = calendarMonth.split('-').map(Number);
-                  const nextMonthNum = month === 12 ? 1 : month + 1;
-                  const nextYear = month === 12 ? year + 1 : year;
-                  setCalendarMonth(`${nextYear}-${String(nextMonthNum).padStart(2, '0')}`);
-                }}
-                className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
-              >
-                <ChevronRight className="w-4 h-4 text-gray-300" />
-              </button>
-              <button
-                onClick={() => setCalendarMonth(getCurrentMonth())}
-                className="ml-2 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
-              >
-                Today
-              </button>
-            </div>
-          </div>
-          <div className="p-4">
-            {(() => {
-              const calData = getCalendarData(calendarMonth);
-              const { daysInMonth, startDayOfWeek, buysInMonth } = calData;
-              const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-              // Create calendar grid
-              const calendarCells: (number | null)[] = [];
-              for (let i = 0; i < startDayOfWeek; i++) calendarCells.push(null);
-              for (let d = 1; d <= daysInMonth; d++) calendarCells.push(d);
-              while (calendarCells.length % 7 !== 0) calendarCells.push(null);
-
-              // Total for month
-              const monthTotal = buysInMonth.reduce((sum, b) => sum + b.amount, 0);
-
-              return (
-                <>
-                  {/* Month Summary */}
-                  {monthTotal > 0 && (
-                    <div className="mb-4 p-3 bg-green-900/20 border border-green-800/50 rounded-lg flex justify-between items-center">
-                      <span className="text-green-400">Total Invested in {formatMonth(calendarMonth)}</span>
-                      <span className="text-green-300 font-bold text-lg">{formatCurrency(monthTotal)}</span>
-                    </div>
-                  )}
-
-                  {/* Calendar Grid */}
-                  <div className="grid grid-cols-7 gap-1">
-                    {/* Header */}
-                    {days.map(day => (
-                      <div key={day} className="text-center text-xs font-medium text-gray-500 py-2">
-                        {day}
-                      </div>
-                    ))}
-
-                    {/* Days */}
-                    {calendarCells.map((day, idx) => {
-                      if (day === null) {
-                        return <div key={`empty-${idx}`} className="aspect-square bg-gray-900/30 rounded" />;
-                      }
-
-                      const dateStr = `${calendarMonth}-${String(day).padStart(2, '0')}`;
-                      const dayBuys = buysInMonth.filter(b => b.date === dateStr);
-                      const dayTotal = dayBuys.reduce((sum, b) => sum + b.amount, 0);
-                      const isToday = dateStr === new Date().toISOString().split('T')[0];
-
-                      return (
-                        <div
-                          key={day}
-                          className={`aspect-square rounded p-1 flex flex-col ${
-                            dayBuys.length > 0
-                              ? 'bg-green-900/30 border border-green-700/50'
-                              : 'bg-gray-900/30'
-                          } ${isToday ? 'ring-2 ring-blue-500' : ''}`}
-                        >
-                          <div className={`text-xs ${isToday ? 'text-blue-400 font-bold' : 'text-gray-500'}`}>
-                            {day}
-                          </div>
-                          {dayBuys.length > 0 && (
-                            <div className="flex-1 flex flex-col justify-center items-center">
-                              <div className="text-xs text-green-400 font-semibold">
-                                {formatCurrency(dayTotal)}
-                              </div>
-                              <div className="text-[10px] text-gray-400 mt-0.5">
-                                {dayBuys.map(b => b.ticker).join(', ')}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Legend */}
-                  {buysInMonth.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-gray-700">
-                      <div className="text-xs text-gray-400 mb-2">Investments this month:</div>
-                      <div className="flex flex-wrap gap-2">
-                        {buysInMonth.map((buy, idx) => (
-                          <div key={idx} className="flex items-center gap-2 bg-gray-700 rounded-lg px-3 py-1.5 text-sm">
-                            <span className="text-white font-medium">{buy.ticker}</span>
-                            <span className="text-gray-400">{buy.date.split('-')[2]}</span>
-                            <span className="text-green-400">{formatCurrency(buy.amount)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-          </div>
-        </div>
-      )}
-
       {/* Settings */}
       <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
         <h3 className="text-lg font-semibold text-white mb-4">Settings</h3>
@@ -874,6 +974,163 @@ export function InvestmentTrackerView() {
           </div>
         </div>
       </div>
+        </>
+      )}
+
+      {/* Investment Summary Tab */}
+      {activeTab === 'summary' && (
+        <div className="space-y-6">
+          {/* Year Navigation */}
+          <div className="bg-gray-800 rounded-xl p-4 border border-gray-700 flex justify-between items-center">
+            <h2 className="text-lg font-semibold text-white">Investment Actions by Month</h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCalendarYear(calendarYear - 1)}
+                className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
+              >
+                <ChevronRight className="w-4 h-4 rotate-180 text-gray-300" />
+              </button>
+              <span className="text-white font-bold text-xl min-w-[80px] text-center">{calendarYear}</span>
+              <button
+                onClick={() => setCalendarYear(calendarYear + 1)}
+                className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
+              >
+                <ChevronRight className="w-4 h-4 text-gray-300" />
+              </button>
+            </div>
+          </div>
+
+          {/* Yearly Summary Stats */}
+          {(() => {
+            const yearData = getYearlyCalendarData(calendarYear);
+            const yearTotal = yearData.reduce((sum, m) => sum + m.totalAmount, 0);
+            const monthsWithBuys = yearData.filter(m => m.buys.length > 0).length;
+            const newStocksThisYear = yearData.filter(m => m.newStockAdded).length;
+
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                  <div className="text-sm text-gray-400">Year Total</div>
+                  <div className="text-2xl font-bold text-green-400">{formatCurrency(yearTotal)}</div>
+                </div>
+                <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                  <div className="text-sm text-gray-400">Active Months</div>
+                  <div className="text-2xl font-bold text-white">{monthsWithBuys} / 12</div>
+                </div>
+                <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                  <div className="text-sm text-gray-400">New Stocks Added</div>
+                  <div className="text-2xl font-bold text-blue-400">{newStocksThisYear}</div>
+                </div>
+                <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                  <div className="text-sm text-gray-400">Avg Monthly</div>
+                  <div className="text-2xl font-bold text-purple-400">
+                    {monthsWithBuys > 0 ? formatCurrency(yearTotal / monthsWithBuys) : '$0'}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Monthly Blocks Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {getYearlyCalendarData(calendarYear).map(monthData => {
+              const isCurrent = monthData.month === currentMonth;
+              const isPast = monthData.month < currentMonth;
+              const isFuture = monthData.month > currentMonth;
+
+              return (
+                <div
+                  key={monthData.month}
+                  className={`bg-gray-800 rounded-xl border overflow-hidden ${
+                    isCurrent
+                      ? 'border-blue-500 ring-2 ring-blue-500/30'
+                      : monthData.buys.length > 0
+                      ? 'border-green-700/50'
+                      : 'border-gray-700'
+                  }`}
+                >
+                  {/* Month Header */}
+                  <div className={`px-4 py-2 flex justify-between items-center ${
+                    isCurrent ? 'bg-blue-900/30' : monthData.buys.length > 0 ? 'bg-green-900/20' : 'bg-gray-900/50'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`font-semibold ${isCurrent ? 'text-blue-300' : 'text-white'}`}>
+                        {monthData.monthName}
+                      </span>
+                      {isCurrent && (
+                        <span className="text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded">NOW</span>
+                      )}
+                    </div>
+                    {monthData.totalAmount > 0 && (
+                      <span className="text-green-400 font-medium text-sm">
+                        {formatCurrency(monthData.totalAmount)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Month Content */}
+                  <div className="p-3 min-h-[100px]">
+                    {monthData.newStockAdded && (
+                      <div className="mb-2 px-2 py-1 bg-blue-900/30 border border-blue-700/50 rounded text-xs">
+                        <span className="text-blue-400">New Stock:</span>
+                        <span className="text-white font-semibold ml-1">{monthData.newStockAdded}</span>
+                      </div>
+                    )}
+
+                    {monthData.buys.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {monthData.buys.map((buy, idx) => (
+                          <div
+                            key={idx}
+                            className={`flex items-center justify-between px-2 py-1.5 rounded text-sm ${
+                              buy.isNewStock ? 'bg-blue-900/20' : 'bg-gray-700/50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-white">{buy.ticker}</span>
+                              <span className="text-gray-500 text-xs">{buy.date.split('-')[2]}</span>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-green-400 font-medium">{formatCurrency(buy.amount)}</div>
+                              <div className="text-gray-500 text-xs">{buy.shares.toFixed(1)} shares</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className={`flex items-center justify-center h-full text-sm ${
+                        isPast ? 'text-red-400' : isFuture ? 'text-gray-600' : 'text-yellow-400'
+                      }`}>
+                        {isPast ? 'No investments' : isFuture ? 'Upcoming' : 'No investments yet'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Quick Year Navigation */}
+          <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+            <div className="text-sm text-gray-400 mb-3">Quick Navigate</div>
+            <div className="flex flex-wrap gap-2">
+              {[2026, 2027, 2028].map(year => (
+                <button
+                  key={year}
+                  onClick={() => setCalendarYear(year)}
+                  className={`px-4 py-2 rounded-lg font-medium transition ${
+                    calendarYear === year
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  {year}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Stock Modal */}
       {showAddModal && (
