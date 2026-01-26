@@ -21,11 +21,11 @@ FINVIZ_FILTERS = {
     'new52WeekHigh': 'ta_highlow52w_nh',
     'new52WeekLow': 'ta_highlow52w_nl',
 
-    # RSI conditions
-    'rsiAbove70': 'ta_rsi_os70',
-    'rsiBelow30': 'ta_rsi_ob30',
+    # RSI conditions (ob = overbought >70, os = oversold <30)
+    'rsiAbove70': 'ta_rsi_ob70',
+    'rsiBelow30': 'ta_rsi_os30',
 
-    # SMA conditions
+    # SMA conditions (pa = price above, pb = price below)
     'aboveSMA20': 'ta_sma20_pa',
     'belowSMA20': 'ta_sma20_pb',
     'aboveSMA50': 'ta_sma50_pa',
@@ -33,7 +33,7 @@ FINVIZ_FILTERS = {
     'aboveSMA200': 'ta_sma200_pa',
     'belowSMA200': 'ta_sma200_pb',
 
-    # SMA crossovers (Golden Cross = SMA50 above SMA200)
+    # SMA crossovers (Golden Cross = SMA50 crossed above SMA200)
     'sma50AboveSMA200': 'ta_sma50_cross200a',
     'sma50BelowSMA200': 'ta_sma50_cross200b',
 }
@@ -58,19 +58,28 @@ def fetch_finviz_count(filter_code: str) -> int:
         with urllib.request.urlopen(req, timeout=30, context=context) as response:
             html = response.read().decode('utf-8')
 
-            # Look for "Total: X" pattern in the HTML
-            # Finviz shows this as: <td ... >Total</td><td ...><b>123</b></td>
+            # Pattern 1: New Finviz format - screener-total div with "#1 / 2580 Total"
+            match = re.search(r'screener-total[^>]*>[^#]*#\d+\s*/\s*(\d+)\s*Total', html)
+            if match:
+                return int(match.group(1))
+
+            # Pattern 2: Alternative "#1 / 123" format anywhere in the page
+            match = re.search(r'#\d+\s*/\s*(\d+)\s*Total', html)
+            if match:
+                return int(match.group(1))
+
+            # Pattern 3: Old format - "Total: X" in table
             match = re.search(r'Total[^<]*</td>[^<]*<td[^>]*><b>(\d+)</b>', html)
             if match:
                 return int(match.group(1))
 
-            # Alternative pattern: "#1 / 123" format
+            # Pattern 4: Just "#1 / 123" without "Total"
             match = re.search(r'#\d+\s*/\s*(\d+)', html)
             if match:
                 return int(match.group(1))
 
             # If no stocks match, page shows different content
-            if 'No results' in html or 'found 0' in html.lower():
+            if 'No results' in html or 'found 0' in html.lower() or 'no matches' in html.lower():
                 return 0
 
             logging.warning(f"Could not parse count from Finviz for filter {filter_code}")
@@ -94,10 +103,22 @@ def fetch_total_universe_count() -> int:
         with urllib.request.urlopen(req, timeout=30, context=context) as response:
             html = response.read().decode('utf-8')
 
+            # Pattern 1: New Finviz format - screener-total div
+            match = re.search(r'screener-total[^>]*>[^#]*#\d+\s*/\s*(\d+)\s*Total', html)
+            if match:
+                return int(match.group(1))
+
+            # Pattern 2: "#1 / 123 Total" format
+            match = re.search(r'#\d+\s*/\s*(\d+)\s*Total', html)
+            if match:
+                return int(match.group(1))
+
+            # Pattern 3: Old table format
             match = re.search(r'Total[^<]*</td>[^<]*<td[^>]*><b>(\d+)</b>', html)
             if match:
                 return int(match.group(1))
 
+            # Pattern 4: Just "#1 / 123"
             match = re.search(r'#\d+\s*/\s*(\d+)', html)
             if match:
                 return int(match.group(1))
