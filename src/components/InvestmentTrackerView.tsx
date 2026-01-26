@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { TrendingUp, Plus, Trash2, DollarSign, Calendar, RefreshCw } from 'lucide-react';
+import { TrendingUp, Plus, Trash2, DollarSign, Calendar, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface MonthlyBuy {
   month: string; // YYYY-MM format
@@ -27,6 +27,7 @@ interface Settings {
 }
 
 const STORAGE_KEY = 'multiBaggerTracker:v2';
+const MAX_INVESTMENT_PER_STOCK = 10000; // $10k limit per stock
 
 // Generate all months from start to end
 function generateMonths(startDate: string, endDate: string): string[] {
@@ -104,6 +105,8 @@ export function InvestmentTrackerView() {
     pricePerShare: '',
     date: new Date().toISOString().split('T')[0]
   });
+  const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState(() => getCurrentMonth());
 
   const allMonths = useMemo(() => generateMonths(settings.startDate, settings.endDate), [settings.startDate, settings.endDate]);
   const allQuarters = useMemo(() => generateQuarters(settings.startDate, settings.endDate), [settings.startDate, settings.endDate]);
@@ -175,7 +178,11 @@ export function InvestmentTrackerView() {
     const completedMonths = stock.monthlyBuys.length;
     const remainingMonths = stockMonths.length - completedMonths;
 
-    return { totalShares, totalInvested, avgPrice, currentValue, profit, returnPct, remainingMonths, stockMonths };
+    // Calculate remaining budget from $10k limit
+    const remainingBudget = Math.max(0, MAX_INVESTMENT_PER_STOCK - totalInvested);
+    const budgetUsedPct = (totalInvested / MAX_INVESTMENT_PER_STOCK) * 100;
+
+    return { totalShares, totalInvested, avgPrice, currentValue, profit, returnPct, remainingMonths, stockMonths, remainingBudget, budgetUsedPct };
   }, [allMonths]);
 
   // Generate upcoming investments table
@@ -305,6 +312,41 @@ export function InvestmentTrackerView() {
 
   const currentMonth = getCurrentMonth();
 
+  // Generate calendar data for a given month
+  const getCalendarData = useCallback((monthStr: string) => {
+    const [year, month] = monthStr.split('-').map(Number);
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay = new Date(year, month, 0);
+    const daysInMonth = lastDay.getDate();
+    const startDayOfWeek = firstDay.getDay(); // 0 = Sunday
+
+    // Get all buys in this month
+    const buysInMonth: { date: string; ticker: string; amount: number; shares: number; price: number }[] = [];
+    stocks.forEach(stock => {
+      stock.monthlyBuys.forEach(buy => {
+        if (buy.date.startsWith(monthStr)) {
+          buysInMonth.push({
+            date: buy.date,
+            ticker: stock.ticker,
+            amount: buy.amount,
+            shares: buy.shares,
+            price: buy.pricePerShare
+          });
+        }
+      });
+    });
+
+    return { year, month, daysInMonth, startDayOfWeek, buysInMonth };
+  }, [stocks]);
+
+  // Get next unfilled month for a stock
+  const getNextUnfilledMonth = useCallback((stock: Stock): string | null => {
+    const stockMonths = allMonths.filter(m => m >= stock.addedMonth);
+    const filledMonths = stock.monthlyBuys.map(b => b.month);
+    const unfilled = stockMonths.filter(m => !filledMonths.includes(m) && m <= currentMonth);
+    return unfilled[0] || stockMonths.find(m => !filledMonths.includes(m)) || null;
+  }, [allMonths, currentMonth]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -378,71 +420,149 @@ export function InvestmentTrackerView() {
         </div>
 
         {stocks.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-900/50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Stock</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Added</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Shares</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Avg Price</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Current</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Invested</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Value</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">P&L</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Buys Left</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-700">
-                {stocks.map(stock => {
-                  const details = getStockDetails(stock);
-                  return (
-                    <tr key={stock.id} className="hover:bg-gray-700/30">
-                      <td className="px-4 py-3">
+          <div className="flex flex-col">
+            {/* Column Headers */}
+            <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-gray-900/50 text-xs font-medium text-gray-400 uppercase border-b border-gray-700">
+              <div className="col-span-2">Stock</div>
+              <div className="col-span-1 text-center">Added</div>
+              <div className="col-span-1 text-right">Shares</div>
+              <div className="col-span-1 text-right">Avg</div>
+              <div className="col-span-1 text-right">Current</div>
+              <div className="col-span-1 text-right">Invested</div>
+              <div className="col-span-1 text-right">Value</div>
+              <div className="col-span-2 text-right">P&L</div>
+              <div className="col-span-1 text-center">Left</div>
+              <div className="col-span-1 text-center">Del</div>
+            </div>
+            <div className="divide-y divide-gray-700">
+            {stocks.map(stock => {
+              const details = getStockDetails(stock);
+              const isExpanded = expandedStockId === stock.id;
+              const nextMonth = getNextUnfilledMonth(stock);
+
+              return (
+                <div key={stock.id}>
+                  {/* Main Row - Clickable to expand */}
+                  <div
+                    className={`grid grid-cols-12 gap-2 px-4 py-3 cursor-pointer hover:bg-gray-700/30 transition ${isExpanded ? 'bg-gray-700/20' : ''}`}
+                    onClick={() => setExpandedStockId(isExpanded ? null : stock.id)}
+                  >
+                    <div className="col-span-2 flex items-center gap-2">
+                      {isExpanded ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+                      <div>
                         <div className="font-semibold text-white">{stock.ticker}</div>
                         <div className="text-xs text-gray-500">{stock.name}</div>
-                      </td>
-                      <td className="px-4 py-3 text-center text-sm text-gray-300">{stock.addedQuarter}</td>
-                      <td className="px-4 py-3 text-right font-medium text-white">{details.totalShares.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-right text-gray-300">${details.avgPrice.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => handleUpdatePrice(stock.id)}
-                          className="text-blue-400 hover:text-blue-300 font-medium"
-                          title="Click to update"
-                        >
-                          ${stock.currentPrice.toFixed(2)}
-                          <RefreshCw className="w-3 h-3 inline ml-1" />
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 text-right text-gray-300">{formatCurrency(details.totalInvested)}</td>
-                      <td className="px-4 py-3 text-right font-medium text-white">{formatCurrency(details.currentValue)}</td>
-                      <td className={`px-4 py-3 text-right font-semibold ${details.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {details.profit >= 0 ? '+' : ''}{formatCurrency(details.profit)}
-                        <div className="text-xs">
-                          {details.returnPct >= 0 ? '+' : ''}{details.returnPct.toFixed(1)}%
+                      </div>
+                    </div>
+                    <div className="col-span-1 text-center text-sm text-gray-300 flex items-center justify-center">{stock.addedQuarter}</div>
+                    <div className="col-span-1 text-right font-medium text-white flex items-center justify-end">{details.totalShares.toFixed(2)}</div>
+                    <div className="col-span-1 text-right text-gray-300 flex items-center justify-end">${details.avgPrice.toFixed(2)}</div>
+                    <div className="col-span-1 text-right flex items-center justify-end">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleUpdatePrice(stock.id); }}
+                        className="text-blue-400 hover:text-blue-300 font-medium"
+                        title="Click to update"
+                      >
+                        ${stock.currentPrice.toFixed(2)}
+                        <RefreshCw className="w-3 h-3 inline ml-1" />
+                      </button>
+                    </div>
+                    <div className="col-span-1 text-right text-gray-300 flex items-center justify-end">{formatCurrency(details.totalInvested)}</div>
+                    <div className="col-span-1 text-right font-medium text-white flex items-center justify-end">{formatCurrency(details.currentValue)}</div>
+                    <div className={`col-span-2 text-right font-semibold flex items-center justify-end ${details.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {details.profit >= 0 ? '+' : ''}{formatCurrency(details.profit)}
+                      <span className="text-xs ml-2">({details.returnPct >= 0 ? '+' : ''}{details.returnPct.toFixed(1)}%)</span>
+                    </div>
+                    <div className="col-span-1 text-center flex items-center justify-center">
+                      <span className="px-2 py-1 bg-gray-700 rounded text-sm text-gray-300">{details.remainingMonths}</span>
+                    </div>
+                    <div className="col-span-1 text-center flex items-center justify-center">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteStock(stock.id); }}
+                        className="p-1.5 text-red-400 hover:bg-red-900/50 rounded"
+                        title="Delete stock"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Expanded Content - Buy History & Add Buy */}
+                  {isExpanded && (
+                    <div className="bg-gray-900/50 px-6 py-4 border-t border-gray-700">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Buy History */}
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-300 mb-3">Buy History ({stock.monthlyBuys.length} buys)</h4>
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                            {stock.monthlyBuys.map((buy, idx) => (
+                              <div key={idx} className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2 text-sm">
+                                <div>
+                                  <span className="text-gray-400">{buy.date}</span>
+                                  <span className="text-gray-500 mx-2">•</span>
+                                  <span className="text-gray-300">{formatMonth(buy.month)}</span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-white font-medium">{formatCurrency(buy.amount)}</span>
+                                  <span className="text-gray-500 text-xs ml-2">({buy.shares.toFixed(2)} @ ${buy.pricePerShare.toFixed(2)})</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="px-2 py-1 bg-gray-700 rounded text-sm text-gray-300">
-                          {details.remainingMonths}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => handleDeleteStock(stock.id)}
-                          className="p-1.5 text-red-400 hover:bg-red-900/50 rounded"
-                          title="Delete stock"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+
+                        {/* Budget & Add Buy */}
+                        <div>
+                          {/* Budget Progress */}
+                          <div className="mb-4">
+                            <div className="flex justify-between text-sm mb-1">
+                              <span className="text-gray-400">Budget Used</span>
+                              <span className="text-gray-300">{formatCurrency(details.totalInvested)} / {formatCurrency(MAX_INVESTMENT_PER_STOCK)}</span>
+                            </div>
+                            <div className="w-full bg-gray-700 rounded-full h-2">
+                              <div
+                                className={`h-2 rounded-full ${details.budgetUsedPct >= 100 ? 'bg-green-500' : 'bg-blue-500'}`}
+                                style={{ width: `${Math.min(100, details.budgetUsedPct)}%` }}
+                              />
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              {details.remainingBudget > 0
+                                ? `${formatCurrency(details.remainingBudget)} remaining for DCA`
+                                : 'Budget fully invested!'}
+                            </div>
+                          </div>
+
+                          {/* Add Buy Button */}
+                          {details.remainingBudget > 0 && nextMonth && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowBuyModal({ stock, month: nextMonth });
+                                setBuyForm({
+                                  shares: '',
+                                  pricePerShare: String(stock.currentPrice),
+                                  date: new Date().toISOString().split('T')[0]
+                                });
+                              }}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                            >
+                              <Plus className="w-4 h-4" />
+                              Add Buy for {formatMonth(nextMonth)}
+                            </button>
+                          )}
+                          {details.remainingBudget <= 0 && (
+                            <div className="text-center py-3 bg-green-900/20 text-green-400 rounded-lg">
+                              All $10k invested in this stock
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            </div>
           </div>
         ) : (
           <div className="p-8 text-center text-gray-500">
@@ -584,6 +704,142 @@ export function InvestmentTrackerView() {
           </table>
         </div>
       </div>
+
+      {/* Monthly Calendar View */}
+      {stocks.length > 0 && (
+        <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+          <div className="p-5 border-b border-gray-700 flex justify-between items-center">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Investment Calendar</h2>
+              <p className="text-sm text-gray-400 mt-1">View investments by month</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const [year, month] = calendarMonth.split('-').map(Number);
+                  const prevMonth = month === 1 ? 12 : month - 1;
+                  const prevYear = month === 1 ? year - 1 : year;
+                  setCalendarMonth(`${prevYear}-${String(prevMonth).padStart(2, '0')}`);
+                }}
+                className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
+              >
+                <ChevronRight className="w-4 h-4 rotate-180 text-gray-300" />
+              </button>
+              <span className="text-white font-medium min-w-[120px] text-center">
+                {formatMonth(calendarMonth)}
+              </span>
+              <button
+                onClick={() => {
+                  const [year, month] = calendarMonth.split('-').map(Number);
+                  const nextMonthNum = month === 12 ? 1 : month + 1;
+                  const nextYear = month === 12 ? year + 1 : year;
+                  setCalendarMonth(`${nextYear}-${String(nextMonthNum).padStart(2, '0')}`);
+                }}
+                className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
+              >
+                <ChevronRight className="w-4 h-4 text-gray-300" />
+              </button>
+              <button
+                onClick={() => setCalendarMonth(getCurrentMonth())}
+                className="ml-2 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
+              >
+                Today
+              </button>
+            </div>
+          </div>
+          <div className="p-4">
+            {(() => {
+              const calData = getCalendarData(calendarMonth);
+              const { daysInMonth, startDayOfWeek, buysInMonth } = calData;
+              const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+              // Create calendar grid
+              const calendarCells: (number | null)[] = [];
+              for (let i = 0; i < startDayOfWeek; i++) calendarCells.push(null);
+              for (let d = 1; d <= daysInMonth; d++) calendarCells.push(d);
+              while (calendarCells.length % 7 !== 0) calendarCells.push(null);
+
+              // Total for month
+              const monthTotal = buysInMonth.reduce((sum, b) => sum + b.amount, 0);
+
+              return (
+                <>
+                  {/* Month Summary */}
+                  {monthTotal > 0 && (
+                    <div className="mb-4 p-3 bg-green-900/20 border border-green-800/50 rounded-lg flex justify-between items-center">
+                      <span className="text-green-400">Total Invested in {formatMonth(calendarMonth)}</span>
+                      <span className="text-green-300 font-bold text-lg">{formatCurrency(monthTotal)}</span>
+                    </div>
+                  )}
+
+                  {/* Calendar Grid */}
+                  <div className="grid grid-cols-7 gap-1">
+                    {/* Header */}
+                    {days.map(day => (
+                      <div key={day} className="text-center text-xs font-medium text-gray-500 py-2">
+                        {day}
+                      </div>
+                    ))}
+
+                    {/* Days */}
+                    {calendarCells.map((day, idx) => {
+                      if (day === null) {
+                        return <div key={`empty-${idx}`} className="aspect-square bg-gray-900/30 rounded" />;
+                      }
+
+                      const dateStr = `${calendarMonth}-${String(day).padStart(2, '0')}`;
+                      const dayBuys = buysInMonth.filter(b => b.date === dateStr);
+                      const dayTotal = dayBuys.reduce((sum, b) => sum + b.amount, 0);
+                      const isToday = dateStr === new Date().toISOString().split('T')[0];
+
+                      return (
+                        <div
+                          key={day}
+                          className={`aspect-square rounded p-1 flex flex-col ${
+                            dayBuys.length > 0
+                              ? 'bg-green-900/30 border border-green-700/50'
+                              : 'bg-gray-900/30'
+                          } ${isToday ? 'ring-2 ring-blue-500' : ''}`}
+                        >
+                          <div className={`text-xs ${isToday ? 'text-blue-400 font-bold' : 'text-gray-500'}`}>
+                            {day}
+                          </div>
+                          {dayBuys.length > 0 && (
+                            <div className="flex-1 flex flex-col justify-center items-center">
+                              <div className="text-xs text-green-400 font-semibold">
+                                {formatCurrency(dayTotal)}
+                              </div>
+                              <div className="text-[10px] text-gray-400 mt-0.5">
+                                {dayBuys.map(b => b.ticker).join(', ')}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Legend */}
+                  {buysInMonth.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-700">
+                      <div className="text-xs text-gray-400 mb-2">Investments this month:</div>
+                      <div className="flex flex-wrap gap-2">
+                        {buysInMonth.map((buy, idx) => (
+                          <div key={idx} className="flex items-center gap-2 bg-gray-700 rounded-lg px-3 py-1.5 text-sm">
+                            <span className="text-white font-medium">{buy.ticker}</span>
+                            <span className="text-gray-400">{buy.date.split('-')[2]}</span>
+                            <span className="text-green-400">{formatCurrency(buy.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Settings */}
       <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
