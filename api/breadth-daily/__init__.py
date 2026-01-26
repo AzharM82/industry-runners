@@ -3,6 +3,7 @@ import os
 import sys
 import logging
 import re
+import time
 from datetime import datetime
 import azure.functions as func
 import urllib.request
@@ -152,9 +153,12 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         universe_count = fetch_total_universe_count()
         logging.info(f"Universe count: {universe_count}")
 
-        # Fetch counts for each filter
+        # Fetch counts for each filter (with delay to avoid rate limiting)
         results = {}
-        for name, filter_code in FINVIZ_FILTERS.items():
+        for i, (name, filter_code) in enumerate(FINVIZ_FILTERS.items()):
+            # Add small delay between requests to avoid rate limiting
+            if i > 0:
+                time.sleep(0.5)
             count = fetch_finviz_count(filter_code)
             results[name] = count
             logging.info(f"{name}: {count}")
