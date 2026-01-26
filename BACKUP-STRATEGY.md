@@ -144,7 +144,7 @@ az redis export --name your-redis-name --resource-group your-rg \
 
 ### URLs
 - **Production**: https://www.stockproai.net
-- **Backup**: https://stockproai-backup.azurestaticapps.net (or your custom domain)
+- **Backup**: https://orange-forest-0960f250f.4.azurestaticapps.net
 
 ### Deploy to Backup
 ```bash
@@ -173,7 +173,7 @@ git push origin --tags
 ## 8. Important Contacts & URLs
 
 - **Production App**: https://www.stockproai.net
-- **Backup App**: https://stockproai-backup.azurestaticapps.net
+- **Backup App**: https://orange-forest-0960f250f.4.azurestaticapps.net
 - **GitHub Repo**: https://github.com/AzharM82/industry-runners
 - **Azure Portal**: https://portal.azure.com
 - **Admin Dashboard**: https://www.stockproai.net/admin
