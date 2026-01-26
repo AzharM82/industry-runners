@@ -576,7 +576,7 @@ export function Dashboard() {
                   : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800/50'
               }`}
             >
-              Investments
+              Long Term Investment
             </button>
           </div>
         </div>

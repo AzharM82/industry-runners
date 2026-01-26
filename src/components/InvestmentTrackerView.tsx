@@ -109,7 +109,7 @@ export function InvestmentTrackerView() {
     date: new Date().toISOString().split('T')[0]
   });
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<InvestmentTab>('execution');
+  const [activeTab, setActiveTab] = useState<InvestmentTab>('system');
   const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -379,6 +379,17 @@ export function InvestmentTrackerView() {
         </div>
         <div className="flex border-b border-gray-700">
           <button
+            onClick={() => setActiveTab('system')}
+            className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition ${
+              activeTab === 'system'
+                ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-700/30'
+                : 'text-gray-400 hover:text-white hover:bg-gray-700/20'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            Investment System
+          </button>
+          <button
             onClick={() => setActiveTab('execution')}
             className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition ${
               activeTab === 'execution'
@@ -399,17 +410,6 @@ export function InvestmentTrackerView() {
           >
             <BarChart3 className="w-4 h-4" />
             Investment Summary
-          </button>
-          <button
-            onClick={() => setActiveTab('system')}
-            className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition ${
-              activeTab === 'system'
-                ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-700/30'
-                : 'text-gray-400 hover:text-white hover:bg-gray-700/20'
-            }`}
-          >
-            <BookOpen className="w-4 h-4" />
-            Investment System
           </button>
         </div>
       </div>
