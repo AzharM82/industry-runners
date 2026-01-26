@@ -72,11 +72,11 @@ export function AdminDashboard() {
     checkAdmin();
   }, []);
 
-  // Fetch daily report (using admin-user endpoint)
+  // Fetch daily report (using subscription-status endpoint which we know works)
   const fetchReport = async (date: string) => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/admin-user?report=daily&date=${date}`);
+      const response = await fetch(`/api/subscription-status?report=daily&date=${date}`);
       if (response.ok) {
         const data = await response.json();
         setReport(data);
@@ -90,10 +90,10 @@ export function AdminDashboard() {
     }
   };
 
-  // Fetch all users (using admin-user endpoint)
+  // Fetch all users (using subscription-status endpoint which we know works)
   const fetchUsers = async () => {
     try {
-      const response = await fetch('/api/admin-user?report=users');
+      const response = await fetch('/api/subscription-status?report=users');
       if (response.ok) {
         const data = await response.json();
         setUsers(data.users || []);
