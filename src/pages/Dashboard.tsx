@@ -517,6 +517,16 @@ export function Dashboard() {
               AI Analysis
             </button>
             <button
+              onClick={() => setActiveTab('breadth')}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                activeTab === 'breadth'
+                  ? 'bg-gray-800 text-white border-t border-l border-r border-gray-700'
+                  : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800/50'
+              }`}
+            >
+              Market Breadth
+            </button>
+            <button
               onClick={() => setActiveTab('analysis')}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
                 activeTab === 'analysis'
@@ -535,16 +545,6 @@ export function Dashboard() {
               }`}
             >
               Focus Stocks
-            </button>
-            <button
-              onClick={() => setActiveTab('breadth')}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-                activeTab === 'breadth'
-                  ? 'bg-gray-800 text-white border-t border-l border-r border-gray-700'
-                  : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800/50'
-              }`}
-            >
-              Breadth Indicators
             </button>
             <button
               onClick={() => setActiveTab('swing')}

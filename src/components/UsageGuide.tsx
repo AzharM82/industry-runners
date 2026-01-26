@@ -55,10 +55,10 @@ const guideSections: GuideSection[] = [
   },
   {
     id: 'breadth',
-    title: 'Breadth Indicators',
+    title: 'Market Breadth',
     icon: <Activity className="w-5 h-5 text-green-400" />,
     content: [
-      'The Breadth Indicators dashboard shows the overall health of the market by analyzing participation across hundreds of stocks.',
+      'The Market Breadth dashboard shows the overall health of the market by analyzing participation across hundreds of stocks.',
       'The Market Condition indicator at the top gives you a clear signal: "ALL IN" (bullish), "STAY 50%" (neutral/cautious), or "GET OUT" (bearish) based on multiple breadth factors.',
       'Key metrics include: stocks up/down 4%+ today, 5-day and 10-day rolling ratios, quarterly performers, and T2108 (percentage of stocks above their 40-day moving average).',
       'The Finviz data section shows new highs vs new lows, stocks above/below key moving averages (20, 50, 200 SMA), and advance/decline ratios.',
@@ -196,7 +196,7 @@ export function UsageGuide({ isOpen, onClose }: UsageGuideProps) {
             <ul className="space-y-2 text-sm text-gray-300">
               <li className="flex gap-2">
                 <span className="text-yellow-400">★</span>
-                <span>Check Breadth Indicators first each morning to gauge overall market health before trading.</span>
+                <span>Check Market Breadth first each morning to gauge overall market health before trading.</span>
               </li>
               <li className="flex gap-2">
                 <span className="text-yellow-400">★</span>
