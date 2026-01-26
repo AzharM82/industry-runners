@@ -492,6 +492,11 @@ export function BreadthIndicatorsView() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {breadthData?.marketClosed && (
+              <span className="px-2 py-1 bg-yellow-900/40 border border-yellow-700/50 rounded text-xs text-yellow-400">
+                Market Closed - Cached Data
+              </span>
+            )}
             {lastUpdate && (
               <span className="text-xs text-gray-500">
                 Updated: {formatTime(lastUpdate)}

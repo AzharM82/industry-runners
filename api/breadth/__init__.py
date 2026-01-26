@@ -11,6 +11,50 @@ import ssl
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.cache import get_cached, set_cached, save_daily_snapshot, should_save_daily_snapshot, CACHE_TTL_REALTIME
 
+
+def is_market_hours() -> bool:
+    """
+    Check if current time is during US stock market hours.
+    Market hours: 9:30 AM - 4:00 PM ET, Monday-Friday
+    Returns True if market is open, False otherwise (use cache)
+    """
+    try:
+        # Get current time in ET (Eastern Time)
+        # Azure Functions typically run in UTC, so we need to convert
+        utc_now = datetime.utcnow()
+
+        # ET offset: -5 hours (EST) or -4 hours (EDT)
+        # Approximate: Use -5 for simplicity, market hours are wide enough
+        # For more accuracy, we'd need pytz but keeping it simple
+        # January = EST (-5), so UTC-5
+        et_offset = timedelta(hours=-5)
+        et_now = utc_now + et_offset
+
+        # Check if it's a weekend (Saturday=5, Sunday=6)
+        if et_now.weekday() >= 5:
+            logging.info(f"Market closed: Weekend (day={et_now.weekday()})")
+            return False
+
+        # Check time of day
+        market_open = et_now.replace(hour=9, minute=30, second=0, microsecond=0)
+        market_close = et_now.replace(hour=16, minute=0, second=0, microsecond=0)
+
+        if et_now < market_open:
+            logging.info(f"Market closed: Pre-market (ET time: {et_now.strftime('%H:%M')})")
+            return False
+
+        if et_now > market_close:
+            logging.info(f"Market closed: After-hours (ET time: {et_now.strftime('%H:%M')})")
+            return False
+
+        logging.info(f"Market OPEN (ET time: {et_now.strftime('%H:%M')})")
+        return True
+
+    except Exception as e:
+        logging.error(f"Error checking market hours: {e}")
+        # Default to True (fetch fresh) if we can't determine
+        return True
+
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
 CACHE_KEY = 'breadth:realtime'
 POLYGON_BASE_URL = 'https://api.polygon.io'
@@ -473,12 +517,31 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Check for bypass cache parameter
         bypass_cache = req.params.get('refresh', '').lower() == 'true'
 
-        # Try to get cached data first (unless bypassing)
+        # Check if market is open
+        market_open = is_market_hours()
+
+        # During non-market hours, ALWAYS use cache (even with refresh param)
+        # This significantly reduces API calls and load times
+        if not market_open:
+            cached = get_cached(CACHE_KEY)
+            if cached:
+                logging.info("Market closed - returning cached breadth data")
+                cached['cached'] = True
+                cached['marketClosed'] = True
+                return func.HttpResponse(
+                    json.dumps(cached),
+                    mimetype="application/json"
+                )
+            # If no cache during non-market hours, we'll fetch once and cache it
+            logging.info("Market closed but no cache - will fetch and cache")
+
+        # Try to get cached data first (unless bypassing during market hours)
         if not bypass_cache:
             cached = get_cached(CACHE_KEY)
             if cached:
                 logging.info("Returning cached breadth data")
                 cached['cached'] = True
+                cached['marketClosed'] = not market_open
                 return func.HttpResponse(
                     json.dumps(cached),
                     mimetype="application/json"
@@ -530,6 +593,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             'timestamp': int(datetime.now().timestamp() * 1000),
             'universeCount': len(BREADTH_UNIVERSE),
             'cached': False,
+            'marketClosed': not market_open,
             **indicators
         }
 

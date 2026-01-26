@@ -178,6 +178,8 @@ export interface BreadthData {
     spyChangePercent: number;
   };
   t2108: number | null;
+  cached?: boolean;
+  marketClosed?: boolean;
 }
 
 export interface PrimaryBreadthIndicators {
