@@ -31,6 +31,7 @@ def init_schema():
         auth_provider_id VARCHAR(255),
         stripe_customer_id VARCHAR(255),
         is_admin BOOLEAN DEFAULT FALSE,
+        last_login_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
     );
@@ -59,12 +60,24 @@ def init_schema():
         created_at TIMESTAMP DEFAULT NOW()
     );
 
+    -- User logins table for tracking login events
+    CREATE TABLE IF NOT EXISTS user_logins (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        email VARCHAR(255) NOT NULL,
+        ip_address VARCHAR(45),
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+    );
+
     -- Create indexes
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_users_stripe_customer ON users(stripe_customer_id);
     CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id);
     CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe ON subscriptions(stripe_subscription_id);
     CREATE INDEX IF NOT EXISTS idx_usage_user_month ON usage(user_id, prompt_type, month_year);
+    CREATE INDEX IF NOT EXISTS idx_user_logins_created ON user_logins(created_at);
+    CREATE INDEX IF NOT EXISTS idx_user_logins_user ON user_logins(user_id);
     """
 
     try:
@@ -206,6 +219,124 @@ def record_usage(user_id: str, prompt_type: str, ticker: str, month_year: str, c
     conn.commit()
     cur.close()
     conn.close()
+
+def record_login(user_id: str, email: str, ip_address: str = None, user_agent: str = None):
+    """Record a user login event and update last_login_at."""
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Record the login event
+    cur.execute("""
+        INSERT INTO user_logins (user_id, email, ip_address, user_agent)
+        VALUES (%s, %s, %s, %s)
+    """, (user_id, email.lower(), ip_address, user_agent))
+
+    # Update last_login_at on user
+    cur.execute("""
+        UPDATE users SET last_login_at = NOW() WHERE id = %s
+    """, (user_id,))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_daily_report(date: str = None):
+    """
+    Get daily report of signups, logins, and usage.
+    If date is None, returns today's report.
+    Date format: YYYY-MM-DD
+    """
+    from datetime import datetime, timedelta
+
+    if date is None:
+        date = datetime.now().strftime('%Y-%m-%d')
+
+    conn = get_connection()
+    cur = get_cursor(conn)
+
+    # New signups today
+    cur.execute("""
+        SELECT id, email, name, created_at
+        FROM users
+        WHERE DATE(created_at) = %s
+        ORDER BY created_at DESC
+    """, (date,))
+    new_signups = [dict(row) for row in cur.fetchall()]
+
+    # Logins today (unique users)
+    cur.execute("""
+        SELECT DISTINCT ON (email) email, MAX(created_at) as last_login
+        FROM user_logins
+        WHERE DATE(created_at) = %s
+        GROUP BY email
+        ORDER BY email, last_login DESC
+    """, (date,))
+    logins_today = [dict(row) for row in cur.fetchall()]
+
+    # Total login count today
+    cur.execute("""
+        SELECT COUNT(*) as count FROM user_logins
+        WHERE DATE(created_at) = %s
+    """, (date,))
+    total_logins = cur.fetchone()['count']
+
+    # AI prompts used today
+    cur.execute("""
+        SELECT prompt_type, COUNT(*) as count
+        FROM usage
+        WHERE DATE(created_at) = %s
+        GROUP BY prompt_type
+    """, (date,))
+    prompts_used = {row['prompt_type']: row['count'] for row in cur.fetchall()}
+
+    # Total users
+    cur.execute("SELECT COUNT(*) as count FROM users")
+    total_users = cur.fetchone()['count']
+
+    # Active users (logged in within last 7 days)
+    cur.execute("""
+        SELECT COUNT(DISTINCT user_id) as count
+        FROM user_logins
+        WHERE created_at > NOW() - INTERVAL '7 days'
+    """)
+    active_users_7d = cur.fetchone()['count']
+
+    cur.close()
+    conn.close()
+
+    return {
+        'date': date,
+        'new_signups': len(new_signups),
+        'new_signup_list': new_signups,
+        'unique_logins': len(logins_today),
+        'total_logins': total_logins,
+        'login_list': logins_today,
+        'prompts_used': prompts_used,
+        'total_users': total_users,
+        'active_users_7d': active_users_7d
+    }
+
+
+def get_all_users():
+    """Get all users with their stats."""
+    conn = get_connection()
+    cur = get_cursor(conn)
+
+    cur.execute("""
+        SELECT
+            u.id, u.email, u.name, u.created_at, u.last_login_at,
+            (SELECT COUNT(*) FROM user_logins WHERE user_id = u.id) as login_count,
+            (SELECT COUNT(*) FROM usage WHERE user_id = u.id) as prompt_count
+        FROM users u
+        ORDER BY u.created_at DESC
+    """)
+    users = [dict(row) for row in cur.fetchall()]
+
+    cur.close()
+    conn.close()
+    return users
+
 
 def check_user_has_access(email: str) -> dict:
     """

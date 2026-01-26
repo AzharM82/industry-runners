@@ -60,6 +60,18 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/api/track-login",
+      "allowedRoles": ["authenticated"]
+    },
+    {
+      "route": "/api/admin-report",
+      "allowedRoles": ["authenticated"]
+    },
+    {
+      "route": "/api/investments",
+      "allowedRoles": ["authenticated"]
+    },
+    {
       "route": "/api/stripe-webhook",
       "allowedRoles": ["anonymous"]
     },

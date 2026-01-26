@@ -136,6 +136,19 @@ export function Dashboard() {
     checkSubscription();
   }, []);
 
+  // Track user login for analytics
+  useEffect(() => {
+    const trackLogin = async () => {
+      try {
+        await fetch('/api/track-login', { method: 'POST' });
+      } catch (err) {
+        // Silently fail - analytics shouldn't break the app
+        console.error('Failed to track login:', err);
+      }
+    };
+    trackLogin();
+  }, []);
+
   // Fetch ALL quotes (swing + day trade) in one request
   const fetchAllQuotes = useCallback(async () => {
     try {
