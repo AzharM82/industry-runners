@@ -1,0 +1,46 @@
+name: Azure Static Web Apps CI/CD (Backup)
+
+# This workflow deploys to the BACKUP Static Web App
+# Runs on manual trigger or when tagged with 'backup-deploy'
+
+on:
+  # Manual trigger from GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for backup deployment'
+        required: false
+        default: 'Manual backup sync'
+
+  # Also deploy when a backup tag is pushed
+  push:
+    tags:
+      - 'backup-*'
+
+jobs:
+  build_and_deploy_backup:
+    runs-on: ubuntu-latest
+    name: Build and Deploy to Backup
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+          lfs: false
+
+      - name: Build And Deploy to Backup
+        id: builddeploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_BACKUP }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "/"
+          api_location: "api"
+          output_location: "dist"
+
+      - name: Deployment Summary
+        run: |
+          echo "## Backup Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event.inputs.reason || 'Tag push' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Time**: $(date)" >> $GITHUB_STEP_SUMMARY

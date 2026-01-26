@@ -140,9 +140,40 @@ az redis export --name your-redis-name --resource-group your-rg \
 
 ---
 
-## 7. Important Contacts & URLs
+## 7. Backup Static Web App (Hot Standby)
+
+### URLs
+- **Production**: https://www.stockproai.net
+- **Backup**: https://stockproai-backup.azurestaticapps.net (or your custom domain)
+
+### Deploy to Backup
+```bash
+# Option 1: Run the script
+./scripts/deploy-to-backup.sh
+
+# Option 2: Manual trigger
+# GitHub → Actions → "Azure Static Web Apps CI/CD (Backup)" → Run workflow
+
+# Option 3: Push a tag
+git tag backup-$(date +%Y%m%d)
+git push origin --tags
+```
+
+### When to Use Backup
+1. Primary site is down
+2. Testing before production deployment
+3. Disaster recovery
+
+### Switching to Backup
+1. Update DNS to point to backup URL
+2. OR share backup URL directly with users
+
+---
+
+## 8. Important Contacts & URLs
 
 - **Production App**: https://www.stockproai.net
+- **Backup App**: https://stockproai-backup.azurestaticapps.net
 - **GitHub Repo**: https://github.com/AzharM82/industry-runners
 - **Azure Portal**: https://portal.azure.com
 - **Admin Dashboard**: https://www.stockproai.net/admin
