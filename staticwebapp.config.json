@@ -44,6 +44,10 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/admin",
+      "allowedRoles": ["authenticated"]
+    },
+    {
       "route": "/api/create-checkout-session",
       "allowedRoles": ["authenticated"]
     },

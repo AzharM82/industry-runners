@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { LandingPage, Dashboard } from './pages';
+import { LandingPage, Dashboard, AdminDashboard } from './pages';
 import { useAuth, login } from './hooks';
 
 function App() {
@@ -54,6 +54,12 @@ function App() {
         <Route
           path="/dashboard/*"
           element={<Dashboard />}
+        />
+
+        {/* Admin Dashboard (protected - checks admin status internally) */}
+        <Route
+          path="/admin"
+          element={<AdminDashboard />}
         />
 
         {/* Catch-all redirect */}
