@@ -72,8 +72,12 @@ def get_daily_report(date: str = None):
         'date': date,
         'new_signups': len(new_signups),
         'new_signup_list': new_signups,
+        'unique_logins': 0,  # Login tracking not yet active
+        'total_logins': 0,
+        'login_list': [],
         'prompts_used': prompts_used,
-        'total_users': total_users
+        'total_users': total_users,
+        'active_users_7d': 0
     }
 
 
@@ -101,6 +105,8 @@ def get_all_users():
     for user in users:
         user_id = str(user['id'])
         user['prompt_count'] = prompt_counts.get(user_id, 0)
+        user['login_count'] = 0  # Login tracking not yet active
+        user['last_login_at'] = None
 
     cur.close()
     conn.close()
