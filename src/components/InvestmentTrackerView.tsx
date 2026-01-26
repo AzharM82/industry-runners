@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { TrendingUp, Plus, Trash2, DollarSign, Calendar, RefreshCw, ChevronDown, ChevronRight, BookOpen, Target, CheckCircle, AlertTriangle, Clock, BarChart3 } from 'lucide-react';
+import { TrendingUp, Plus, Trash2, DollarSign, Calendar, RefreshCw, ChevronDown, ChevronRight, BookOpen, Target, CheckCircle, AlertTriangle, Clock, BarChart3, Lock } from 'lucide-react';
 
 type InvestmentTab = 'execution' | 'summary' | 'system';
+const API_BASE = '/api';
 
 interface MonthlyBuy {
   month: string; // YYYY-MM format
@@ -110,9 +111,25 @@ export function InvestmentTrackerView() {
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<InvestmentTab>('execution');
   const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const allMonths = useMemo(() => generateMonths(settings.startDate, settings.endDate), [settings.startDate, settings.endDate]);
   const allQuarters = useMemo(() => generateQuarters(settings.startDate, settings.endDate), [settings.startDate, settings.endDate]);
+
+  // Check admin status
+  useEffect(() => {
+    fetch(`${API_BASE}/subscription-status`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.is_admin) {
+          setIsAdmin(true);
+        }
+      })
+      .catch(() => {
+        // Not logged in or error - not admin
+        setIsAdmin(false);
+      });
+  }, []);
 
   // Load data from localStorage
   useEffect(() => {
@@ -187,33 +204,6 @@ export function InvestmentTrackerView() {
 
     return { totalShares, totalInvested, avgPrice, currentValue, profit, returnPct, remainingMonths, stockMonths, remainingBudget, budgetUsedPct };
   }, [allMonths]);
-
-  // Generate upcoming investments table
-  const upcomingInvestments = useMemo(() => {
-    const upcoming: { month: string; investments: { ticker: string; stockId: number; done: boolean }[] }[] = [];
-
-    allMonths.forEach(month => {
-      const investments: { ticker: string; stockId: number; done: boolean }[] = [];
-
-      stocks.forEach(stock => {
-        // Check if this stock should have an investment this month
-        if (month >= stock.addedMonth) {
-          const hasBuy = stock.monthlyBuys.some(b => b.month === month);
-          investments.push({
-            ticker: stock.ticker,
-            stockId: stock.id,
-            done: hasBuy
-          });
-        }
-      });
-
-      if (investments.length > 0) {
-        upcoming.push({ month, investments });
-      }
-    });
-
-    return upcoming;
-  }, [allMonths, stocks]);
 
   // Get first month of a quarter
   const getFirstMonthOfQuarter = (quarter: string): string => {
@@ -372,10 +362,20 @@ export function InvestmentTrackerView() {
       {/* Header with Tabs */}
       <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
         <div className="p-6 border-b border-gray-700">
-          <h1 className="text-2xl font-bold text-white mb-2">Multi-Bagger Investment Tracker</h1>
-          <p className="text-gray-400">
-            1 new stock per quarter | Monthly investments until Dec 2028 | 12 stocks total
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-2">Long Term Investment</h1>
+              <p className="text-gray-400">
+                1 new stock per quarter | Monthly investments until Dec 2028 | 12 stocks total
+              </p>
+            </div>
+            {!isAdmin && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-700/50 rounded-lg text-sm text-gray-400">
+                <Lock className="w-4 h-4" />
+                View Only
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex border-b border-gray-700">
           <button
@@ -423,7 +423,7 @@ export function InvestmentTrackerView() {
               <div className="p-2 bg-blue-600/20 rounded-lg">
                 <Target className="w-6 h-6 text-blue-400" />
               </div>
-              <h2 className="text-xl font-bold text-white">The Multi-Bagger Investment System</h2>
+              <h2 className="text-xl font-bold text-white">The Long Term Investment System</h2>
             </div>
             <p className="text-gray-300 leading-relaxed mb-4">
               This system is designed to build a concentrated portfolio of high-conviction stocks over a 3-year period,
@@ -488,7 +488,7 @@ export function InvestmentTrackerView() {
                   <h4 className="font-medium text-white">Track & Hold Until Dec 2028</h4>
                   <p className="text-gray-400 text-sm mt-1">
                     Continue the monthly investments for all stocks until December 2028.
-                    The goal is to find multi-bagger opportunities that can grow significantly over this period.
+                    The goal is to find high-growth opportunities that can grow significantly over this period.
                   </p>
                 </div>
               </div>
@@ -638,21 +638,23 @@ export function InvestmentTrackerView() {
       <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
         <div className="p-5 border-b border-gray-700 flex justify-between items-center">
           <h2 className="text-lg font-semibold text-white">My Stocks ({stocks.length}/12)</h2>
-          <button
-            onClick={() => {
-              if (availableQuarters.length === 0) {
-                alert('All 12 quarters already have a stock!');
-                return;
-              }
-              setNewStock({ ...newStock, quarter: availableQuarters[0] });
-              setShowAddModal(true);
-            }}
-            disabled={stocks.length >= 12}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition"
-          >
-            <Plus className="w-4 h-4" />
-            Add New Stock
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => {
+                if (availableQuarters.length === 0) {
+                  alert('All 12 quarters already have a stock!');
+                  return;
+                }
+                setNewStock({ ...newStock, quarter: availableQuarters[0] });
+                setShowAddModal(true);
+              }}
+              disabled={stocks.length >= 12}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition"
+            >
+              <Plus className="w-4 h-4" />
+              Add New Stock
+            </button>
+          )}
         </div>
 
         {stocks.length > 0 ? (
@@ -694,14 +696,18 @@ export function InvestmentTrackerView() {
                     <div className="col-span-1 text-right font-medium text-white flex items-center justify-end">{details.totalShares.toFixed(2)}</div>
                     <div className="col-span-1 text-right text-gray-300 flex items-center justify-end">${details.avgPrice.toFixed(2)}</div>
                     <div className="col-span-1 text-right flex items-center justify-end">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleUpdatePrice(stock.id); }}
-                        className="text-blue-400 hover:text-blue-300 font-medium"
-                        title="Click to update"
-                      >
-                        ${stock.currentPrice.toFixed(2)}
-                        <RefreshCw className="w-3 h-3 inline ml-1" />
-                      </button>
+                      {isAdmin ? (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleUpdatePrice(stock.id); }}
+                          className="text-blue-400 hover:text-blue-300 font-medium"
+                          title="Click to update"
+                        >
+                          ${stock.currentPrice.toFixed(2)}
+                          <RefreshCw className="w-3 h-3 inline ml-1" />
+                        </button>
+                      ) : (
+                        <span className="text-gray-300 font-medium">${stock.currentPrice.toFixed(2)}</span>
+                      )}
                     </div>
                     <div className="col-span-1 text-right text-gray-300 flex items-center justify-end">{formatCurrency(details.totalInvested)}</div>
                     <div className="col-span-1 text-right font-medium text-white flex items-center justify-end">{formatCurrency(details.currentValue)}</div>
@@ -713,13 +719,17 @@ export function InvestmentTrackerView() {
                       <span className="px-2 py-1 bg-gray-700 rounded text-sm text-gray-300">{details.remainingMonths}</span>
                     </div>
                     <div className="col-span-1 text-center flex items-center justify-center">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteStock(stock.id); }}
-                        className="p-1.5 text-red-400 hover:bg-red-900/50 rounded"
-                        title="Delete stock"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {isAdmin ? (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteStock(stock.id); }}
+                          className="p-1.5 text-red-400 hover:bg-red-900/50 rounded"
+                          title="Delete stock"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      ) : (
+                        <span className="text-gray-600">-</span>
+                      )}
                     </div>
                   </div>
 
@@ -768,8 +778,8 @@ export function InvestmentTrackerView() {
                             </div>
                           </div>
 
-                          {/* Add Buy Button */}
-                          {details.remainingBudget > 0 && nextMonth && (
+                          {/* Add Buy Button - Admin Only */}
+                          {isAdmin && details.remainingBudget > 0 && nextMonth && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -791,6 +801,11 @@ export function InvestmentTrackerView() {
                               All $10k invested in this stock
                             </div>
                           )}
+                          {!isAdmin && details.remainingBudget > 0 && (
+                            <div className="text-center py-3 bg-gray-700/30 text-gray-400 rounded-lg text-sm">
+                              {formatCurrency(details.remainingBudget)} remaining
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -802,7 +817,9 @@ export function InvestmentTrackerView() {
           </div>
         ) : (
           <div className="p-8 text-center text-gray-500">
-            No stocks yet. Click "Add New Stock" to start building your portfolio.
+            {isAdmin
+              ? 'No stocks yet. Click "Add New Stock" to start building your portfolio.'
+              : 'No stocks in the portfolio yet. Check back later for updates.'}
           </div>
         )}
       </div>
@@ -848,100 +865,8 @@ export function InvestmentTrackerView() {
         </div>
       )}
 
-      {/* Upcoming Investments Schedule */}
-      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-        <div className="p-5 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-white">Investment Schedule</h2>
-          <p className="text-sm text-gray-400 mt-1">Monthly investments for each stock until Dec 2028</p>
-        </div>
-        <div className="overflow-x-auto max-h-[500px]">
-          <table className="w-full">
-            <thead className="bg-gray-900/50 sticky top-0">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase sticky left-0 bg-gray-900">Month</th>
-                {stocks.map(stock => (
-                  <th key={stock.id} className="px-3 py-3 text-center text-xs font-medium text-gray-400 uppercase min-w-[80px]">
-                    {stock.ticker}
-                  </th>
-                ))}
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Total</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-700">
-              {upcomingInvestments.map(({ month, investments }) => {
-                const isPast = month < currentMonth;
-                const isCurrent = month === currentMonth;
-                const totalForMonth = investments.filter(i => i.done).reduce((sum, i) => {
-                  const stock = stocks.find(s => s.id === i.stockId);
-                  const buy = stock?.monthlyBuys.find(b => b.month === month);
-                  return sum + (buy?.amount || 0);
-                }, 0);
-
-                return (
-                  <tr
-                    key={month}
-                    className={`${isCurrent ? 'bg-blue-900/20' : ''} ${isPast ? 'opacity-60' : ''} hover:bg-gray-700/30`}
-                  >
-                    <td className={`px-4 py-2 text-sm font-medium sticky left-0 ${isCurrent ? 'bg-blue-900/40 text-blue-300' : 'bg-gray-800 text-gray-300'}`}>
-                      {formatMonth(month)}
-                      {isCurrent && <span className="ml-2 text-xs bg-blue-600 px-1.5 py-0.5 rounded">NOW</span>}
-                    </td>
-                    {stocks.map(stock => {
-                      const isApplicable = month >= stock.addedMonth;
-                      const buy = stock.monthlyBuys.find(b => b.month === month);
-
-                      if (!isApplicable) {
-                        return (
-                          <td key={stock.id} className="px-3 py-2 text-center text-gray-600">
-                            -
-                          </td>
-                        );
-                      }
-
-                      if (buy) {
-                        return (
-                          <td key={stock.id} className="px-3 py-2 text-center">
-                            <span className="text-green-400 text-sm font-medium">
-                              ${buy.amount.toFixed(0)}
-                            </span>
-                          </td>
-                        );
-                      }
-
-                      return (
-                        <td key={stock.id} className="px-3 py-2 text-center">
-                          {!isPast ? (
-                            <button
-                              onClick={() => {
-                                setShowBuyModal({ stock, month });
-                                setBuyForm({
-                                  shares: '',
-                                  pricePerShare: String(stock.currentPrice),
-                                  date: new Date().toISOString().split('T')[0]
-                                });
-                              }}
-                              className="text-xs px-2 py-1 bg-yellow-600/30 text-yellow-400 rounded hover:bg-yellow-600/50 transition"
-                            >
-                              Record
-                            </button>
-                          ) : (
-                            <span className="text-red-400 text-xs">Missed</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="px-4 py-2 text-right text-sm font-medium text-white">
-                      {totalForMonth > 0 ? formatCurrency(totalForMonth) : '-'}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Settings */}
+      {/* Settings - Admin Only */}
+      {isAdmin && (
       <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
         <h3 className="text-lg font-semibold text-white mb-4">Settings</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -974,6 +899,7 @@ export function InvestmentTrackerView() {
           </div>
         </div>
       </div>
+      )}
         </>
       )}
 

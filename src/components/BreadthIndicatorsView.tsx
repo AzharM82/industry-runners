@@ -458,8 +458,18 @@ export function BreadthIndicatorsView() {
 
   if (loading && !breadthData) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-400">Loading breadth indicators...</div>
+      <div className="flex flex-col items-center justify-center h-64 space-y-4">
+        <div className="relative">
+          <div className="w-12 h-12 border-4 border-gray-700 border-t-blue-500 rounded-full animate-spin"></div>
+        </div>
+        <div className="text-center">
+          <div className="text-white font-medium">Loading Market Breadth</div>
+          <div className="text-gray-500 text-sm mt-1">
+            {isMarketOpen()
+              ? 'Fetching live data from 500+ stocks...'
+              : 'Loading cached market data...'}
+          </div>
+        </div>
       </div>
     );
   }
