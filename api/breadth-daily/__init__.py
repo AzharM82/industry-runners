@@ -12,6 +12,7 @@ import ssl
 # Add shared module to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.cache import get_cached, set_cached, save_daily_snapshot, should_save_daily_snapshot, CACHE_TTL_DAILY
+from shared.timezone import now_pst, today_pst
 
 CACHE_KEY = 'breadth:daily'
 
@@ -176,10 +177,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         elif results['rsiAbove70'] > 0:
             rsi_ratio = 99.99
 
-        # Build response
+        # Build response (using PST timezone)
         response = {
-            'date': datetime.now().strftime('%Y-%m-%d'),
-            'timestamp': int(datetime.now().timestamp() * 1000),
+            'date': today_pst(),
+            'timestamp': int(now_pst().timestamp() * 1000),
             'universeCount': universe_count,
             'cached': False,
             'highs': {

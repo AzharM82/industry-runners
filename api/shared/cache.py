@@ -15,6 +15,9 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
+# Import PST timezone utilities
+from .timezone import now_pst, today_pst
+
 # Try to import redis, gracefully handle if not available
 try:
     import redis
@@ -126,7 +129,7 @@ def save_daily_snapshot(key_prefix: str, data: Dict[str, Any], date: str = None)
         return False
 
     if date is None:
-        date = datetime.now().strftime('%Y-%m-%d')
+        date = today_pst()  # Use PST timezone
 
     try:
         # Save the snapshot
@@ -139,7 +142,7 @@ def save_daily_snapshot(key_prefix: str, data: Dict[str, Any], date: str = None)
         client.zadd(dates_key, {date: timestamp})
 
         # Clean up old entries (keep only last 30 days)
-        cutoff = (datetime.now() - timedelta(days=30)).timestamp()
+        cutoff = (now_pst() - timedelta(days=30)).timestamp()
         client.zremrangebyscore(dates_key, '-inf', cutoff)
 
         logging.info(f"Saved daily snapshot for {key_prefix} on {date}")
@@ -190,7 +193,7 @@ def should_save_daily_snapshot(key_prefix: str) -> bool:
     if not client:
         return False
 
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = today_pst()  # Use PST timezone
     snapshot_key = f"{key_prefix}:history:{today}"
 
     try:

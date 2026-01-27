@@ -10,6 +10,7 @@ import ssl
 # Add shared module to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.cache import get_cached, set_cached, save_daily_snapshot, should_save_daily_snapshot, CACHE_TTL_REALTIME
+from shared.timezone import now_pst, today_pst
 
 
 def is_market_hours() -> bool:
@@ -166,7 +167,7 @@ def get_trading_date_n_days_ago(n_days: int) -> str:
     """Get the trading date approximately n calendar days ago."""
     # Add buffer for weekends and holidays
     buffer_days = (n_days // 5) * 2 + 5  # Extra days for weekends/holidays
-    target_date = datetime.now() - timedelta(days=n_days + buffer_days)
+    target_date = now_pst() - timedelta(days=n_days + buffer_days)
     return target_date.strftime('%Y-%m-%d')
 
 
@@ -210,7 +211,7 @@ def get_historical_closes(symbols: list, days_ago: int) -> dict:
     # Calculate date approximately N trading days ago
     # Assuming ~252 trading days per year, roughly 21 per month
     calendar_days = int(days_ago * 1.45)  # Approximate calendar days from trading days
-    target_date = datetime.now() - timedelta(days=calendar_days)
+    target_date = now_pst() - timedelta(days=calendar_days)
 
     # Try a few dates in case of holidays
     for offset in range(5):
@@ -228,7 +229,7 @@ def get_trading_dates(num_days: int) -> list:
     Returns dates in descending order (most recent first).
     """
     dates = []
-    current = datetime.now()
+    current = now_pst()
 
     while len(dates) < num_days:
         current = current - timedelta(days=1)
@@ -587,10 +588,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Calculate breadth indicators
         indicators = calculate_breadth_indicators(snapshots, hist_21, hist_34, hist_63, ratio_5day, ratio_10day, t2108)
 
-        # Build response
+        # Build response (using PST timezone)
         response = {
-            'date': datetime.now().strftime('%Y-%m-%d'),
-            'timestamp': int(datetime.now().timestamp() * 1000),
+            'date': today_pst(),
+            'timestamp': int(now_pst().timestamp() * 1000),
             'universeCount': len(BREADTH_UNIVERSE),
             'cached': False,
             'marketClosed': not market_open,

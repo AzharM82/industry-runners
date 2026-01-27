@@ -7,6 +7,8 @@ import logging
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+from .timezone import today_pst
+
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 def get_connection():
@@ -265,7 +267,7 @@ def get_daily_report(date: str = None):
     from datetime import datetime, timedelta
 
     if date is None:
-        date = datetime.now().strftime('%Y-%m-%d')
+        date = today_pst()  # Use PST timezone
 
     conn = get_connection()
     cur = get_cursor(conn)

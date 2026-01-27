@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.database import get_user_by_email, get_subscription, get_usage_count, init_schema, get_connection, get_cursor
 from shared.admin import is_admin, get_monthly_limit, is_beta_mode, BETA_PROMPT_LIMIT
+from shared.timezone import now_pst, today_pst
 
 
 def get_user_from_auth(req):
@@ -38,7 +39,7 @@ def json_serializer(obj):
 def get_daily_report(date: str = None):
     """Get daily analytics report."""
     if date is None:
-        date = datetime.now().strftime('%Y-%m-%d')
+        date = today_pst()  # Use PST timezone
 
     conn = get_connection()
     cur = get_cursor(conn)
@@ -190,9 +191,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         else:
             has_access = subscription is not None
 
-        # Get usage for current month
-        from datetime import datetime
-        month_year = datetime.now().strftime('%Y-%m')
+        # Get usage for current month (PST timezone)
+        month_year = now_pst().strftime('%Y-%m')
         monthly_limit = get_monthly_limit(user_email)
 
         usage = {}
