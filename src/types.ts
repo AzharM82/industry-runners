@@ -266,8 +266,30 @@ export interface SectorSummary {
   stocks: SectorRotationStock[];
 }
 
+export interface SpyIntradayBar {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface SparklinePoint {
+  date: number;
+  change: number;
+}
+
+export interface HistoricalComparison {
+  yesterdayAvg: number;
+  weekAgoAvg: number;
+}
+
 export interface SectorRotationData {
   timeframe: 'daily' | 'weekly';
   timestamp: number;
   sectors: SectorSummary[];
+  spyIntraday: SpyIntradayBar[];
+  sparklines: Record<string, SparklinePoint[]>;
+  historical: Record<string, HistoricalComparison>;
 }

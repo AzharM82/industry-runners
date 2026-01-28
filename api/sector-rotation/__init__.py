@@ -13,6 +13,7 @@ from shared.cache import get_cached, set_cached
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
 POLYGON_BASE_URL = 'https://api.polygon.io'
 CACHE_TTL_SECTOR = 5 * 60  # 5 minutes cache
+CACHE_TTL_INTRADAY = 60  # 1 minute for intraday data
 
 # Sector data matching the frontend
 SECTORS = [
@@ -122,6 +123,110 @@ def get_avg_volume(symbols: list) -> dict:
             logging.error(f"Error getting avg volume for {symbol}: {e}")
 
     return result
+
+
+def get_spy_intraday() -> list:
+    """Get SPY intraday data (5-minute bars for today)"""
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        data = polygon_request(f"/v2/aggs/ticker/SPY/range/5/minute/{today}/{today}?adjusted=true&sort=asc&limit=100")
+        results = data.get('results', [])
+
+        intraday = []
+        for bar in results:
+            intraday.append({
+                'time': bar.get('t', 0),
+                'open': bar.get('o', 0),
+                'high': bar.get('h', 0),
+                'low': bar.get('l', 0),
+                'close': bar.get('c', 0),
+                'volume': bar.get('v', 0)
+            })
+        return intraday
+    except Exception as e:
+        logging.error(f"Error getting SPY intraday: {e}")
+        return []
+
+
+def get_sector_sparklines(sectors: list, all_quotes: dict) -> dict:
+    """Get 5-day performance data for each sector (for sparklines)"""
+    result = {}
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+
+    for sector in sectors:
+        sector_name = sector['shortName']
+        daily_changes = {}
+
+        for symbol in sector['stocks'][:5]:  # Use top 5 stocks for efficiency
+            try:
+                data = polygon_request(f"/v2/aggs/ticker/{symbol}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&limit=5")
+                results = data.get('results', [])
+
+                for i, bar in enumerate(results):
+                    date_key = bar.get('t', 0)
+                    if date_key not in daily_changes:
+                        daily_changes[date_key] = []
+
+                    if i > 0 and results[i-1].get('c', 0) > 0:
+                        prev_close = results[i-1].get('c', 0)
+                        curr_close = bar.get('c', 0)
+                        pct_change = ((curr_close - prev_close) / prev_close) * 100
+                        daily_changes[date_key].append(pct_change)
+            except Exception as e:
+                logging.error(f"Error getting sparkline for {symbol}: {e}")
+
+        # Calculate average change per day
+        sparkline = []
+        for date_key in sorted(daily_changes.keys()):
+            changes = daily_changes[date_key]
+            if changes:
+                avg = sum(changes) / len(changes)
+                sparkline.append({'date': date_key, 'change': round(avg, 2)})
+
+        result[sector_name] = sparkline
+
+    return result
+
+
+def get_historical_comparison(sectors_data: list) -> dict:
+    """Get yesterday's sector averages for comparison"""
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d')
+
+    comparison = {}
+
+    for sector in SECTORS:
+        yesterday_changes = []
+        week_ago_changes = []
+
+        for symbol in sector['stocks'][:5]:  # Use top 5 for efficiency
+            try:
+                data = polygon_request(f"/v2/aggs/ticker/{symbol}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=desc&limit=7")
+                results = data.get('results', [])
+
+                if len(results) >= 2:
+                    # Yesterday's change
+                    if results[1].get('c', 0) > 0:
+                        prev = results[1].get('c', 0)
+                        curr = results[0].get('c', 0)
+                        yesterday_changes.append(((curr - prev) / prev) * 100)
+
+                if len(results) >= 6:
+                    # Week ago change (5 days ago)
+                    if results[5].get('c', 0) > 0:
+                        prev = results[5].get('c', 0)
+                        curr = results[0].get('c', 0)
+                        week_ago_changes.append(((curr - prev) / prev) * 100)
+            except Exception as e:
+                logging.error(f"Error getting historical for {symbol}: {e}")
+
+        comparison[sector['shortName']] = {
+            'yesterdayAvg': round(sum(yesterday_changes) / len(yesterday_changes), 2) if yesterday_changes else 0,
+            'weekAgoAvg': round(sum(week_ago_changes) / len(week_ago_changes), 2) if week_ago_changes else 0
+        }
+
+    return comparison
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
@@ -264,10 +369,22 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 'stocks': stocks
             })
 
+        # Get SPY intraday data
+        spy_intraday = get_spy_intraday()
+
+        # Get sector sparklines (5-day performance)
+        sparklines = get_sector_sparklines(SECTORS, all_quotes)
+
+        # Get historical comparison data
+        historical = get_historical_comparison(sectors_data)
+
         response_data = {
             'timeframe': timeframe,
             'timestamp': int(datetime.now().timestamp() * 1000),
             'sectors': sectors_data,
+            'spyIntraday': spy_intraday,
+            'sparklines': sparklines,
+            'historical': historical,
             'cached': False
         }
 

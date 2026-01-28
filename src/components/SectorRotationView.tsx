@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { SectorRotationData, SectorSummary, SectorRotationStock } from '../types';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import type { SectorRotationData, SectorSummary, SectorRotationStock, SpyIntradayBar } from '../types';
+import html2canvas from 'html2canvas';
 
 const API_BASE = '/api';
 
@@ -15,6 +16,8 @@ export function SectorRotationView() {
   const [error, setError] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<'daily' | 'weekly'>('daily');
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const chartContainerRef = useRef<HTMLDivElement>(null);
 
   const fetchData = useCallback(async (refresh = false) => {
     try {
@@ -42,6 +45,28 @@ export function SectorRotationView() {
     fetchData();
   }, [fetchData]);
 
+  // Export to PNG
+  const handleExport = async () => {
+    if (!chartContainerRef.current) return;
+
+    setExporting(true);
+    try {
+      const canvas = await html2canvas(chartContainerRef.current, {
+        backgroundColor: '#1f2937',
+        scale: 2
+      });
+
+      const link = document.createElement('a');
+      link.download = `sector-rotation-${timeframe}-${new Date().toISOString().split('T')[0]}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // Calculate chart dimensions and scales
   const chartConfig = useMemo(() => {
     if (!data) return null;
@@ -62,8 +87,6 @@ export function SectorRotationView() {
 
   // Get bubble radius based on relative volume
   const getRadius = (relativeVolume: number) => {
-    // relativeVolume = volume / avgVolume
-    // 0.5x avg -> 4px, 1x avg -> 8px, 2x avg -> 16px
     return Math.min(20, Math.max(4, 4 + (relativeVolume - 0.5) * 8));
   };
 
@@ -88,18 +111,17 @@ export function SectorRotationView() {
   // Get bubble color
   const getBubbleColor = (changePercent: number) => {
     if (changePercent > 0) {
-      return 'rgba(34, 197, 94, 0.8)'; // green
+      return 'rgba(34, 197, 94, 0.8)';
     } else if (changePercent < 0) {
-      return 'rgba(239, 68, 68, 0.8)'; // red
+      return 'rgba(239, 68, 68, 0.8)';
     }
-    return 'rgba(156, 163, 175, 0.8)'; // gray
+    return 'rgba(156, 163, 175, 0.8)';
   };
 
   // Add jitter to avoid overlapping bubbles
   const getJitter = (index: number, total: number) => {
-    const spread = 30; // max pixels from center
+    const spread = 30;
     if (total <= 1) return 0;
-    // Distribute bubbles in a pattern
     const angle = (index / total) * Math.PI * 2;
     return Math.sin(angle) * spread * (index % 2 === 0 ? 1 : 0.5);
   };
@@ -179,6 +201,26 @@ export function SectorRotationView() {
               Weekly
             </button>
           </div>
+          {/* Export Button */}
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
+          >
+            {exporting ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                Exporting...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export PNG
+              </>
+            )}
+          </button>
           {/* Refresh Button */}
           <button
             onClick={() => fetchData(true)}
@@ -190,130 +232,207 @@ export function SectorRotationView() {
         </div>
       </div>
 
-      {/* Bubble Chart */}
-      <div className="bg-gray-800 rounded-xl p-4 overflow-x-auto">
-        <svg
-          width={chartConfig.width}
-          height={chartConfig.height}
-          className="mx-auto"
-          style={{ minWidth: chartConfig.width }}
-        >
-          {/* Y-axis grid lines and labels */}
-          {[-15, -10, -5, 0, 5, 10, 15].filter(v => v >= chartConfig.minChange && v <= chartConfig.maxChange).map(value => {
-            const y = getY(value);
-            return (
-              <g key={value}>
-                <line
-                  x1={chartConfig.padding.left}
-                  y1={y}
-                  x2={chartConfig.width - chartConfig.padding.right}
-                  y2={y}
-                  stroke={value === 0 ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)'}
-                  strokeWidth={value === 0 ? 2 : 1}
-                />
-                <text
-                  x={chartConfig.padding.left - 10}
-                  y={y + 4}
-                  fill="#9CA3AF"
-                  fontSize={12}
-                  textAnchor="end"
-                >
-                  {value > 0 ? '+' : ''}{value}%
-                </text>
-                <text
-                  x={chartConfig.width - chartConfig.padding.right + 10}
-                  y={y + 4}
-                  fill="#9CA3AF"
-                  fontSize={12}
-                  textAnchor="start"
-                >
-                  {value > 0 ? '+' : ''}{value}%
-                </text>
-              </g>
-            );
-          })}
+      {/* Main Chart Container (for export) */}
+      <div ref={chartContainerRef} className="space-y-6">
+        {/* SPY Intraday Chart */}
+        {data.spyIntraday && data.spyIntraday.length > 0 && (
+          <SpyIntradayChart bars={data.spyIntraday} />
+        )}
 
-          {/* Sector columns and bubbles */}
-          {data.sectors.map((sector, sectorIndex) => {
-            const x = getSectorX(sectorIndex);
-
-            return (
-              <g key={sector.name}>
-                {/* Sector separator line */}
-                {sectorIndex > 0 && (
+        {/* Bubble Chart */}
+        <div className="bg-gray-800 rounded-xl p-4 overflow-x-auto">
+          <svg
+            width={chartConfig.width}
+            height={chartConfig.height}
+            className="mx-auto"
+            style={{ minWidth: chartConfig.width }}
+          >
+            {/* Y-axis grid lines and labels */}
+            {[-15, -10, -5, 0, 5, 10, 15].filter(v => v >= chartConfig.minChange && v <= chartConfig.maxChange).map(value => {
+              const y = getY(value);
+              return (
+                <g key={value}>
                   <line
-                    x1={x - (chartConfig.width - chartConfig.padding.left - chartConfig.padding.right) / (chartConfig.sectorCount * 2)}
-                    y1={chartConfig.padding.top}
-                    x2={x - (chartConfig.width - chartConfig.padding.left - chartConfig.padding.right) / (chartConfig.sectorCount * 2)}
-                    y2={chartConfig.height - chartConfig.padding.bottom}
-                    stroke="rgba(255,255,255,0.05)"
-                    strokeDasharray="4,4"
+                    x1={chartConfig.padding.left}
+                    y1={y}
+                    x2={chartConfig.width - chartConfig.padding.right}
+                    y2={y}
+                    stroke={value === 0 ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)'}
+                    strokeWidth={value === 0 ? 2 : 1}
                   />
-                )}
+                  <text
+                    x={chartConfig.padding.left - 10}
+                    y={y + 4}
+                    fill="#9CA3AF"
+                    fontSize={12}
+                    textAnchor="end"
+                  >
+                    {value > 0 ? '+' : ''}{value}%
+                  </text>
+                  <text
+                    x={chartConfig.width - chartConfig.padding.right + 10}
+                    y={y + 4}
+                    fill="#9CA3AF"
+                    fontSize={12}
+                    textAnchor="start"
+                  >
+                    {value > 0 ? '+' : ''}{value}%
+                  </text>
+                </g>
+              );
+            })}
 
-                {/* Stock bubbles */}
-                {sector.stocks.map((stock, stockIndex) => {
-                  const bubbleX = x + getJitter(stockIndex, sector.stocks.length);
-                  const bubbleY = getY(stock.changePercent);
-                  const radius = getRadius(stock.relativeVolume);
-                  const color = getBubbleColor(stock.changePercent);
+            {/* Sector columns and bubbles */}
+            {data.sectors.map((sector, sectorIndex) => {
+              const x = getSectorX(sectorIndex);
 
-                  return (
-                    <g key={stock.symbol}>
-                      <circle
-                        cx={bubbleX}
-                        cy={bubbleY}
-                        r={radius}
-                        fill={color}
-                        stroke={stock.isNewHigh ? '#FFD700' : stock.isNewLow ? '#FF6B6B' : 'transparent'}
-                        strokeWidth={2}
-                        className="cursor-pointer transition-all hover:opacity-80"
-                        onMouseEnter={(e) => handleBubbleMouseEnter(stock, e)}
-                        onMouseLeave={handleBubbleMouseLeave}
-                      />
-                      {/* Symbol label for larger bubbles */}
-                      {radius >= 8 && (
-                        <text
-                          x={bubbleX}
-                          y={bubbleY + radius + 12}
-                          fill="#9CA3AF"
-                          fontSize={9}
-                          textAnchor="middle"
-                          className="pointer-events-none"
-                        >
-                          {stock.symbol}
-                        </text>
-                      )}
+              return (
+                <g key={sector.name}>
+                  {/* Sector separator line */}
+                  {sectorIndex > 0 && (
+                    <line
+                      x1={x - (chartConfig.width - chartConfig.padding.left - chartConfig.padding.right) / (chartConfig.sectorCount * 2)}
+                      y1={chartConfig.padding.top}
+                      x2={x - (chartConfig.width - chartConfig.padding.left - chartConfig.padding.right) / (chartConfig.sectorCount * 2)}
+                      y2={chartConfig.height - chartConfig.padding.bottom}
+                      stroke="rgba(255,255,255,0.05)"
+                      strokeDasharray="4,4"
+                    />
+                  )}
+
+                  {/* Stock bubbles */}
+                  {sector.stocks.map((stock, stockIndex) => {
+                    const bubbleX = x + getJitter(stockIndex, sector.stocks.length);
+                    const bubbleY = getY(stock.changePercent);
+                    const radius = getRadius(stock.relativeVolume);
+                    const color = getBubbleColor(stock.changePercent);
+
+                    return (
+                      <g key={stock.symbol}>
+                        <circle
+                          cx={bubbleX}
+                          cy={bubbleY}
+                          r={radius}
+                          fill={color}
+                          stroke={stock.isNewHigh ? '#FFD700' : stock.isNewLow ? '#FF6B6B' : 'transparent'}
+                          strokeWidth={2}
+                          className="cursor-pointer transition-all hover:opacity-80"
+                          onMouseEnter={(e) => handleBubbleMouseEnter(stock, e)}
+                          onMouseLeave={handleBubbleMouseLeave}
+                        />
+                        {radius >= 8 && (
+                          <text
+                            x={bubbleX}
+                            y={bubbleY + radius + 12}
+                            fill="#9CA3AF"
+                            fontSize={9}
+                            textAnchor="middle"
+                            className="pointer-events-none"
+                          >
+                            {stock.symbol}
+                          </text>
+                        )}
+                      </g>
+                    );
+                  })}
+
+                  {/* Sector label */}
+                  <text
+                    x={x}
+                    y={chartConfig.height - chartConfig.padding.bottom + 20}
+                    fill="white"
+                    fontSize={11}
+                    fontWeight="bold"
+                    textAnchor="middle"
+                  >
+                    {sector.shortName}
+                  </text>
+
+                  {/* Sector average change */}
+                  <text
+                    x={x}
+                    y={chartConfig.height - chartConfig.padding.bottom + 38}
+                    fill={sector.avgChange >= 0 ? '#22C55E' : '#EF4444'}
+                    fontSize={11}
+                    textAnchor="middle"
+                  >
+                    {sector.avgChange >= 0 ? '+' : ''}{sector.avgChange.toFixed(1)}%
+                  </text>
+
+                  {/* Sparkline */}
+                  {data.sparklines && data.sparklines[sector.shortName] && (
+                    <g transform={`translate(${x - 25}, ${chartConfig.height - chartConfig.padding.bottom + 48})`}>
+                      <Sparkline data={data.sparklines[sector.shortName]} width={50} height={20} />
                     </g>
-                  );
-                })}
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+        </div>
 
-                {/* Sector label */}
-                <text
-                  x={x}
-                  y={chartConfig.height - chartConfig.padding.bottom + 20}
-                  fill="white"
-                  fontSize={11}
-                  fontWeight="bold"
-                  textAnchor="middle"
-                >
-                  {sector.shortName}
-                </text>
-
-                {/* Sector average change */}
-                <text
-                  x={x}
-                  y={chartConfig.height - chartConfig.padding.bottom + 38}
-                  fill={sector.avgChange >= 0 ? '#22C55E' : '#EF4444'}
-                  fontSize={11}
-                  textAnchor="middle"
-                >
-                  {sector.avgChange >= 0 ? '+' : ''}{sector.avgChange.toFixed(1)}%
-                </text>
-              </g>
-            );
-          })}
-        </svg>
+        {/* Historical Comparison Row */}
+        {data.historical && (
+          <div className="bg-gray-800 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-700">
+              <h3 className="text-lg font-semibold text-white">Historical Comparison</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-900/50">
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Comparison</th>
+                    {data.sectors.map(sector => (
+                      <th key={sector.shortName} className="px-3 py-2 text-center text-xs font-medium text-gray-400 uppercase">
+                        {sector.shortName}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-t border-gray-700">
+                    <td className="px-4 py-3 text-sm text-gray-300">Today</td>
+                    {data.sectors.map(sector => (
+                      <td key={`today-${sector.shortName}`} className="px-3 py-3 text-center">
+                        <span className={`text-sm font-medium ${sector.avgChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {sector.avgChange >= 0 ? '+' : ''}{sector.avgChange.toFixed(2)}%
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="border-t border-gray-700">
+                    <td className="px-4 py-3 text-sm text-gray-300">vs Yesterday</td>
+                    {data.sectors.map(sector => {
+                      const hist = data.historical[sector.shortName];
+                      const diff = hist ? sector.avgChange - hist.yesterdayAvg : 0;
+                      return (
+                        <td key={`yest-${sector.shortName}`} className="px-3 py-3 text-center">
+                          <span className={`text-sm ${diff >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {diff >= 0 ? '+' : ''}{diff.toFixed(2)}%
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr className="border-t border-gray-700">
+                    <td className="px-4 py-3 text-sm text-gray-300">vs Week Ago</td>
+                    {data.sectors.map(sector => {
+                      const hist = data.historical[sector.shortName];
+                      const weekChange = hist ? hist.weekAgoAvg : 0;
+                      return (
+                        <td key={`week-${sector.shortName}`} className="px-3 py-3 text-center">
+                          <span className={`text-sm ${weekChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {weekChange >= 0 ? '+' : ''}{weekChange.toFixed(2)}%
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tooltip */}
@@ -412,7 +531,7 @@ export function SectorRotationView() {
         </div>
       </div>
 
-      {/* Sector Details (Collapsible) */}
+      {/* Sector Details */}
       <div className="bg-gray-800 rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-700">
           <h3 className="text-lg font-semibold text-white">Sector Details</h3>
@@ -427,11 +546,139 @@ export function SectorRotationView() {
   );
 }
 
+// SPY Intraday Chart Component
+function SpyIntradayChart({ bars }: { bars: SpyIntradayBar[] }) {
+  if (!bars || bars.length === 0) return null;
+
+  const width = 1200;
+  const height = 120;
+  const padding = { top: 20, right: 60, bottom: 30, left: 60 };
+
+  const prices = bars.map(b => b.close);
+  const minPrice = Math.min(...prices) * 0.999;
+  const maxPrice = Math.max(...prices) * 1.001;
+  const priceRange = maxPrice - minPrice;
+
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+
+  const getX = (index: number) => padding.left + (index / (bars.length - 1)) * chartWidth;
+  const getY = (price: number) => padding.top + ((maxPrice - price) / priceRange) * chartHeight;
+
+  const firstPrice = bars[0]?.close || 0;
+  const lastPrice = bars[bars.length - 1]?.close || 0;
+  const changePercent = firstPrice > 0 ? ((lastPrice - firstPrice) / firstPrice) * 100 : 0;
+  const isPositive = changePercent >= 0;
+
+  // Create path
+  const pathData = bars.map((bar, i) => {
+    const x = getX(i);
+    const y = getY(bar.close);
+    return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+  }).join(' ');
+
+  // Create area fill path
+  const areaPath = pathData + ` L ${getX(bars.length - 1)} ${height - padding.bottom} L ${padding.left} ${height - padding.bottom} Z`;
+
+  return (
+    <div className="bg-gray-800 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-3">
+          <span className="text-white font-bold">SPY</span>
+          <span className="text-gray-400">${lastPrice.toFixed(2)}</span>
+          <span className={isPositive ? 'text-green-400' : 'text-red-400'}>
+            {isPositive ? '+' : ''}{changePercent.toFixed(2)}%
+          </span>
+        </div>
+        <span className="text-gray-500 text-sm">Intraday</span>
+      </div>
+      <svg width={width} height={height} className="mx-auto" style={{ minWidth: width }}>
+        {/* Gradient fill */}
+        <defs>
+          <linearGradient id="spyGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={isPositive ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'} />
+            <stop offset="100%" stopColor={isPositive ? 'rgba(34, 197, 94, 0)' : 'rgba(239, 68, 68, 0)'} />
+          </linearGradient>
+        </defs>
+
+        {/* Area fill */}
+        <path d={areaPath} fill="url(#spyGradient)" />
+
+        {/* Price line */}
+        <path
+          d={pathData}
+          fill="none"
+          stroke={isPositive ? '#22C55E' : '#EF4444'}
+          strokeWidth={2}
+        />
+
+        {/* Zero line (opening price) */}
+        <line
+          x1={padding.left}
+          y1={getY(firstPrice)}
+          x2={width - padding.right}
+          y2={getY(firstPrice)}
+          stroke="rgba(255,255,255,0.2)"
+          strokeDasharray="4,4"
+        />
+
+        {/* Y-axis labels */}
+        <text x={padding.left - 5} y={padding.top + 4} fill="#9CA3AF" fontSize={10} textAnchor="end">
+          ${maxPrice.toFixed(2)}
+        </text>
+        <text x={padding.left - 5} y={height - padding.bottom} fill="#9CA3AF" fontSize={10} textAnchor="end">
+          ${minPrice.toFixed(2)}
+        </text>
+
+        {/* Time labels */}
+        <text x={padding.left} y={height - 5} fill="#9CA3AF" fontSize={10} textAnchor="start">
+          9:30
+        </text>
+        <text x={width - padding.right} y={height - 5} fill="#9CA3AF" fontSize={10} textAnchor="end">
+          Now
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+// Sparkline Component
+function Sparkline({ data, width, height }: { data: { date: number; change: number }[]; width: number; height: number }) {
+  if (!data || data.length < 2) return null;
+
+  const changes = data.map(d => d.change);
+  const min = Math.min(...changes, 0);
+  const max = Math.max(...changes, 0);
+  const range = max - min || 1;
+
+  const getX = (i: number) => (i / (data.length - 1)) * width;
+  const getY = (val: number) => height - ((val - min) / range) * height;
+
+  const pathData = data.map((d, i) => {
+    const x = getX(i);
+    const y = getY(d.change);
+    return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+  }).join(' ');
+
+  const lastChange = data[data.length - 1]?.change || 0;
+  const isPositive = lastChange >= 0;
+
+  return (
+    <svg width={width} height={height}>
+      <path
+        d={pathData}
+        fill="none"
+        stroke={isPositive ? '#22C55E' : '#EF4444'}
+        strokeWidth={1.5}
+      />
+    </svg>
+  );
+}
+
 // Sector Card Component
 function SectorCard({ sector }: { sector: SectorSummary }) {
   const [expanded, setExpanded] = useState(false);
 
-  // Sort stocks by change percent
   const sortedStocks = [...sector.stocks].sort((a, b) => b.changePercent - a.changePercent);
   const displayStocks = expanded ? sortedStocks : sortedStocks.slice(0, 5);
 
