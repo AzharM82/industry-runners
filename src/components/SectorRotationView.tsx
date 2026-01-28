@@ -14,12 +14,16 @@ interface Sector {
   shortName: string;
   avgChange: number;
   stocks: Stock[];
+  newHighs?: number;
+  newLows?: number;
 }
 
 interface SectorData {
   timestamp: number;
+  date?: string;
   sectors: Sector[];
   cached?: boolean;
+  marketOpen?: boolean;
 }
 
 interface TooltipData {
@@ -28,8 +32,24 @@ interface TooltipData {
   y: number;
 }
 
+interface NHNLDayData {
+  date: string;
+  sectors: Record<string, { nh: number; nl: number }>;
+}
+
+interface NHNLHistory {
+  days: NHNLDayData[];
+}
+
+// Sector order for the table (fixed)
+const SECTOR_ORDER = [
+  'Tech', 'Financials', 'Health Care', 'Discretionary', 'Comm Services',
+  'Industrials', 'Staples', 'Energy', 'Utilities', 'Materials', 'Real Estate'
+];
+
 export function SectorRotationView() {
   const [data, setData] = useState<SectorData | null>(null);
+  const [nhnlHistory, setNhnlHistory] = useState<NHNLHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
@@ -40,7 +60,7 @@ export function SectorRotationView() {
   useEffect(() => {
     const updateWidth = () => {
       if (containerRef.current) {
-        const width = containerRef.current.offsetWidth - 16; // Account for padding
+        const width = containerRef.current.offsetWidth - 16;
         setChartWidth(Math.max(1200, width));
       }
     };
@@ -71,12 +91,28 @@ export function SectorRotationView() {
     }
   }, []);
 
+  const fetchNHNLHistory = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/sector-rotation?history=true`);
+      if (response.ok) {
+        const result = await response.json();
+        setNhnlHistory(result);
+      }
+    } catch (err) {
+      console.error('Error fetching NH/NL history:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchData();
+    fetchNHNLHistory();
     // Auto-refresh every 60 seconds
-    const interval = setInterval(() => fetchData(), 60000);
+    const interval = setInterval(() => {
+      fetchData();
+      fetchNHNLHistory();
+    }, 60000);
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchData, fetchNHNLHistory]);
 
   // Chart configuration - responsive width, taller height
   const chartConfig = useMemo(() => {
@@ -113,9 +149,8 @@ export function SectorRotationView() {
     return sectorCenter + offset;
   }, [chartConfig]);
 
-  // Get bubble radius (fixed size for now, can be based on volume/market cap later)
+  // Get bubble radius
   const getRadius = useCallback((stock: Stock) => {
-    // Larger radius for bigger moves
     const absChange = Math.abs(stock.changePercent);
     return Math.min(18, Math.max(6, 6 + absChange * 0.8));
   }, []);
@@ -131,6 +166,12 @@ export function SectorRotationView() {
 
   const handleMouseLeave = () => {
     setTooltip(null);
+  };
+
+  // Format date for display (MM/DD)
+  const formatDate = (dateStr: string) => {
+    const [, month, day] = dateStr.split('-');
+    return `${month}/${day}`;
   };
 
   if (loading && !data) {
@@ -166,11 +207,21 @@ export function SectorRotationView() {
   const sectors = [...data.sectors].sort((a, b) => b.avgChange - a.avgChange);
   const sectorWidth = (chartConfig.width - chartConfig.padding.left - chartConfig.padding.right) / sectors.length;
 
+  // Get last 15 days of NH/NL history
+  const historyDays = nhnlHistory?.days?.slice(0, 15) || [];
+
   return (
     <div ref={containerRef} className="bg-black rounded-lg p-4">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-white">Sector Rotation</h2>
+        <div className="flex items-center gap-4">
+          <h2 className="text-xl font-bold text-white">Sector Rotation</h2>
+          {data.marketOpen !== undefined && (
+            <span className={`text-xs px-2 py-1 rounded ${data.marketOpen ? 'bg-green-900 text-green-400' : 'bg-gray-800 text-gray-400'}`}>
+              {data.marketOpen ? 'Market Open' : 'Market Closed'}
+            </span>
+          )}
+        </div>
         <button
           onClick={() => fetchData(true)}
           disabled={loading}
@@ -326,6 +377,55 @@ export function SectorRotationView() {
           })}
         </svg>
       </div>
+
+      {/* NH/NL History Table */}
+      {historyDays.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-lg font-bold text-white mb-4">New Highs / New Lows by Sector (Last 15 Days)</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-700">
+                  <th className="text-left text-gray-400 py-2 px-2 sticky left-0 bg-black">Date</th>
+                  {SECTOR_ORDER.map(sector => (
+                    <th key={sector} className="text-center text-gray-400 py-2 px-1 min-w-[70px]">
+                      <div className="text-xs">{sector}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {historyDays.map((day, idx) => (
+                  <tr key={day.date} className={idx % 2 === 0 ? 'bg-gray-900/30' : ''}>
+                    <td className="text-gray-300 py-2 px-2 sticky left-0 bg-black font-medium">
+                      {formatDate(day.date)}
+                    </td>
+                    {SECTOR_ORDER.map(sector => {
+                      const sectorData = day.sectors[sector] || { nh: 0, nl: 0 };
+                      return (
+                        <td key={sector} className="text-center py-2 px-1">
+                          <div className="flex justify-center gap-1">
+                            <span className={`${sectorData.nh > 0 ? 'text-green-400' : 'text-gray-600'}`}>
+                              {sectorData.nh}
+                            </span>
+                            <span className="text-gray-600">/</span>
+                            <span className={`${sectorData.nl > 0 ? 'text-red-400' : 'text-gray-600'}`}>
+                              {sectorData.nl}
+                            </span>
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="text-xs text-gray-500 mt-2">
+            Format: <span className="text-green-400">NH</span> / <span className="text-red-400">NL</span> (New 52-Week Highs / New 52-Week Lows)
+          </div>
+        </div>
+      )}
 
       {/* Tooltip */}
       {tooltip && (
