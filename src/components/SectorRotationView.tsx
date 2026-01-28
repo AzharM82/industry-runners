@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 const API_BASE = '/api';
 
@@ -33,6 +33,21 @@ export function SectorRotationView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+  const [chartWidth, setChartWidth] = useState(1600);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Measure container width on mount and resize
+  useEffect(() => {
+    const updateWidth = () => {
+      if (containerRef.current) {
+        const width = containerRef.current.offsetWidth - 16; // Account for padding
+        setChartWidth(Math.max(1200, width));
+      }
+    };
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, []);
 
   const fetchData = useCallback(async (refresh = false) => {
     try {
@@ -63,16 +78,16 @@ export function SectorRotationView() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // Chart configuration - use full width with minimal padding
+  // Chart configuration - responsive width, taller height
   const chartConfig = useMemo(() => {
     return {
-      width: 1400,
-      height: 600,
-      padding: { top: 30, right: 35, bottom: 60, left: 35 },
+      width: chartWidth,
+      height: 700,
+      padding: { top: 30, right: 30, bottom: 60, left: 30 },
       minChange: -15,
       maxChange: 15
     };
-  }, []);
+  }, [chartWidth]);
 
   // Map Y value (% change) to pixel position
   const getY = useCallback((changePercent: number) => {
@@ -152,7 +167,7 @@ export function SectorRotationView() {
   const sectorWidth = (chartConfig.width - chartConfig.padding.left - chartConfig.padding.right) / sectors.length;
 
   return (
-    <div className="bg-black rounded-lg p-4">
+    <div ref={containerRef} className="bg-black rounded-lg p-4">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-bold text-white">Sector Rotation</h2>
@@ -166,11 +181,13 @@ export function SectorRotationView() {
       </div>
 
       {/* Bubble Chart */}
-      <div className="overflow-x-auto">
+      <div className="w-full">
         <svg
-          width={chartConfig.width}
+          width="100%"
           height={chartConfig.height}
-          style={{ minWidth: chartConfig.width, background: '#0a0a0a' }}
+          viewBox={`0 0 ${chartConfig.width} ${chartConfig.height}`}
+          preserveAspectRatio="xMidYMid meet"
+          style={{ background: '#0a0a0a' }}
         >
           {/* Sector columns (alternating dark backgrounds) */}
           {sectors.map((_, i) => {
