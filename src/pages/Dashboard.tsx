@@ -11,6 +11,7 @@ import { FocusStocksView } from '../components/FocusStocksView';
 import { BreadthIndicatorsView } from '../components/BreadthIndicatorsView';
 import { TradeManagementView } from '../components/TradeManagementView';
 import { InvestmentTrackerView } from '../components/InvestmentTrackerView';
+import { SectorRotationView } from '../components/SectorRotationView';
 import { PromptRunner } from '../components/PromptRunner';
 import { UsageGuide } from '../components/UsageGuide';
 import { useAuth, logout } from '../hooks';
@@ -98,7 +99,7 @@ function getAllSymbols(): string[] {
   return Array.from(symbols);
 }
 
-type DashboardType = 'ai-analysis' | 'analysis' | 'focus' | 'breadth' | 'swing' | 'daytrade' | 'trade-management' | 'investments';
+type DashboardType = 'ai-analysis' | 'analysis' | 'focus' | 'breadth' | 'sector-rotation' | 'swing' | 'daytrade' | 'trade-management' | 'investments';
 
 export function Dashboard() {
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
@@ -540,6 +541,16 @@ export function Dashboard() {
               Market Breadth
             </button>
             <button
+              onClick={() => setActiveTab('sector-rotation')}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
+                activeTab === 'sector-rotation'
+                  ? 'bg-gray-800 text-white border-t border-l border-r border-gray-700'
+                  : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800/50'
+              }`}
+            >
+              Sector Rotation
+            </button>
+            <button
               onClick={() => setActiveTab('analysis')}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
                 activeTab === 'analysis'
@@ -632,6 +643,9 @@ export function Dashboard() {
         ) : activeTab === 'breadth' ? (
           // Breadth Indicators Dashboard
           <BreadthIndicatorsView />
+        ) : activeTab === 'sector-rotation' ? (
+          // Sector Rotation Dashboard
+          <SectorRotationView />
         ) : activeTab === 'trade-management' ? (
           // Trade Management Dashboard
           <TradeManagementView />

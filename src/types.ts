@@ -241,3 +241,33 @@ export interface BreadthHistoryResponse {
   realtime: BreadthHistoryItem[];
   daily: BreadthHistoryItem[];
 }
+
+// Sector Rotation Types
+export interface SectorRotationStock {
+  symbol: string;
+  sector: string;
+  changePercent: number;      // Daily or weekly
+  volume: number;
+  avgVolume: number;
+  relativeVolume: number;     // volume / avgVolume
+  price: number;
+  high52w: number;
+  low52w: number;
+  isNewHigh: boolean;         // Within 2% of 52w high
+  isNewLow: boolean;          // Within 2% of 52w low
+}
+
+export interface SectorSummary {
+  name: string;
+  shortName: string;
+  avgChange: number;
+  newHighs: number;
+  newLows: number;
+  stocks: SectorRotationStock[];
+}
+
+export interface SectorRotationData {
+  timeframe: 'daily' | 'weekly';
+  timestamp: number;
+  sectors: SectorSummary[];
+}
