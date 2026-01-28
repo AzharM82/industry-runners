@@ -93,7 +93,7 @@ def get_all_symbols() -> list:
 
 
 def get_15day_high_low(symbols: list) -> dict:
-    """Get 15-day high and low for all symbols"""
+    """Get 15-day high and low for all symbols (excluding today)"""
     cache_key = "sector-rotation:15day-highlow"
     cached = get_cached(cache_key)
     if cached:
@@ -108,13 +108,14 @@ def get_15day_high_low(symbols: list) -> dict:
     et_tz = ZoneInfo('America/New_York')
     today = datetime.now(et_tz)
 
-    # Go back 20 calendar days to ensure we get 15 trading days
-    from_date = (today - timedelta(days=25)).strftime('%Y-%m-%d')
-    to_date = today.strftime('%Y-%m-%d')
+    # Get previous 15 trading days (exclude today)
+    # Go back 25 calendar days to ensure we get enough trading days
+    from_date = (today - timedelta(days=30)).strftime('%Y-%m-%d')
+    to_date = (today - timedelta(days=1)).strftime('%Y-%m-%d')  # Yesterday, exclude today
 
     result = {}
 
-    # Fetch aggregates for each symbol (grouped bars endpoint)
+    # Fetch aggregates for each symbol
     for symbol in symbols:
         try:
             data = polygon_request(
@@ -123,7 +124,7 @@ def get_15day_high_low(symbols: list) -> dict:
             )
 
             if '_error' not in data and data.get('results'):
-                bars = data['results'][:15]  # Last 15 trading days
+                bars = data['results'][:15]  # Last 15 trading days before today
                 if bars:
                     highs = [bar.get('h', 0) for bar in bars if bar.get('h')]
                     lows = [bar.get('l', 0) for bar in bars if bar.get('l')]
@@ -225,6 +226,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         all_symbols = get_all_symbols()
 
         # Get 15-day high/low data for all symbols
+        # Clear cache on refresh to get fresh data
+        if refresh:
+            set_cached("sector-rotation:15day-highlow", None, 0)
         high_low_15d = get_15day_high_low(all_symbols)
 
         # Fetch snapshot data in batches
@@ -252,16 +256,16 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     if prev_close > 0:
                         change_pct = ((current_price - prev_close) / prev_close) * 100
 
-                    # Get 15-day high/low
+                    # Get 15-day high/low (from previous 15 days, excluding today)
                     symbol_15d = high_low_15d.get(symbol, {})
                     high_15d = symbol_15d.get('high15d', 0)
                     low_15d = symbol_15d.get('low15d', 0)
 
                     # Determine if new 15-day high or low
-                    # New high: today's high >= 15-day high
-                    # New low: today's low <= 15-day low
-                    is_new_high = day_high > 0 and high_15d > 0 and day_high >= high_15d
-                    is_new_low = day_low > 0 and low_15d > 0 and day_low <= low_15d
+                    # New high: today's high > previous 15-day high (breaking out)
+                    # New low: today's low < previous 15-day low (breaking down)
+                    is_new_high = day_high > 0 and high_15d > 0 and day_high > high_15d
+                    is_new_low = day_low > 0 and low_15d > 0 and day_low < low_15d
 
                     all_quotes[symbol] = {
                         'price': current_price,
