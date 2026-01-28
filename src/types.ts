@@ -245,51 +245,20 @@ export interface BreadthHistoryResponse {
 // Sector Rotation Types
 export interface SectorRotationStock {
   symbol: string;
-  sector: string;
-  changePercent: number;      // Daily or weekly
-  volume: number;
-  avgVolume: number;
-  relativeVolume: number;     // volume / avgVolume
+  changePercent: number;
   price: number;
-  high52w: number;
-  low52w: number;
-  isNewHigh: boolean;         // Within 2% of 52w high
-  isNewLow: boolean;          // Within 2% of 52w low
+  volume: number;
 }
 
 export interface SectorSummary {
   name: string;
   shortName: string;
   avgChange: number;
-  newHighs: number;
-  newLows: number;
   stocks: SectorRotationStock[];
 }
 
-export interface SpyIntradayBar {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
-
-export interface SparklinePoint {
-  date: number;
-  change: number;
-}
-
-export interface HistoricalComparison {
-  yesterdayAvg: number;
-  weekAgoAvg: number;
-}
-
 export interface SectorRotationData {
-  timeframe: 'daily' | 'weekly';
   timestamp: number;
   sectors: SectorSummary[];
-  spyIntraday: SpyIntradayBar[];
-  sparklines: Record<string, SparklinePoint[]>;
-  historical: Record<string, HistoricalComparison>;
+  cached?: boolean;
 }

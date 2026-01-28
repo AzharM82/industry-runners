@@ -1,30 +1,45 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import type { SectorRotationData, SectorSummary, SectorRotationStock, SpyIntradayBar } from '../types';
-import html2canvas from 'html2canvas';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 
 const API_BASE = '/api';
 
+interface Stock {
+  symbol: string;
+  changePercent: number;
+  price: number;
+  volume: number;
+}
+
+interface Sector {
+  name: string;
+  shortName: string;
+  avgChange: number;
+  stocks: Stock[];
+}
+
+interface SectorData {
+  timestamp: number;
+  sectors: Sector[];
+  cached?: boolean;
+}
+
 interface TooltipData {
-  stock: SectorRotationStock;
+  stock: Stock;
   x: number;
   y: number;
 }
 
 export function SectorRotationView() {
-  const [data, setData] = useState<SectorRotationData | null>(null);
+  const [data, setData] = useState<SectorData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [timeframe, setTimeframe] = useState<'daily' | 'weekly'>('daily');
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
-  const [exporting, setExporting] = useState(false);
-  const chartContainerRef = useRef<HTMLDivElement>(null);
 
   const fetchData = useCallback(async (refresh = false) => {
     try {
       setLoading(true);
       setError(null);
 
-      const url = `${API_BASE}/sector-rotation?timeframe=${timeframe}${refresh ? '&refresh=true' : ''}`;
+      const url = `${API_BASE}/sector-rotation${refresh ? '?refresh=true' : ''}`;
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -34,99 +49,64 @@ export function SectorRotationView() {
       const result = await response.json();
       setData(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch sector rotation data');
+      setError(err instanceof Error ? err.message : 'Failed to fetch data');
       console.error('Error fetching sector rotation:', err);
     } finally {
       setLoading(false);
     }
-  }, [timeframe]);
+  }, []);
 
   useEffect(() => {
     fetchData();
+    // Auto-refresh every 60 seconds
+    const interval = setInterval(() => fetchData(), 60000);
+    return () => clearInterval(interval);
   }, [fetchData]);
 
-  // Export to PNG
-  const handleExport = async () => {
-    if (!chartContainerRef.current) return;
-
-    setExporting(true);
-    try {
-      const canvas = await html2canvas(chartContainerRef.current, {
-        backgroundColor: '#1f2937',
-        scale: 2
-      });
-
-      const link = document.createElement('a');
-      link.download = `sector-rotation-${timeframe}-${new Date().toISOString().split('T')[0]}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-    } catch (err) {
-      console.error('Export failed:', err);
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  // Calculate chart dimensions and scales
+  // Chart configuration
   const chartConfig = useMemo(() => {
-    if (!data) return null;
-
-    const allChanges = data.sectors.flatMap(s => s.stocks.map(st => st.changePercent));
-    const maxChange = Math.max(15, Math.ceil(Math.max(...allChanges, 0) / 5) * 5);
-    const minChange = Math.min(-15, Math.floor(Math.min(...allChanges, 0) / 5) * 5);
-
     return {
-      width: 1200,
-      height: 500,
-      padding: { top: 40, right: 60, bottom: 80, left: 60 },
-      maxChange,
-      minChange,
-      sectorCount: data.sectors.length
+      width: 1400,
+      height: 600,
+      padding: { top: 30, right: 50, bottom: 60, left: 50 },
+      minChange: -15,
+      maxChange: 15
     };
-  }, [data]);
-
-  // Get bubble radius based on relative volume
-  const getRadius = (relativeVolume: number) => {
-    return Math.min(20, Math.max(4, 4 + (relativeVolume - 0.5) * 8));
-  };
+  }, []);
 
   // Map Y value (% change) to pixel position
-  const getY = (changePercent: number) => {
-    if (!chartConfig) return 0;
+  const getY = useCallback((changePercent: number) => {
     const { height, padding, maxChange, minChange } = chartConfig;
     const chartHeight = height - padding.top - padding.bottom;
-    const range = maxChange - minChange;
-    return padding.top + ((maxChange - changePercent) / range) * chartHeight;
-  };
+    const clampedChange = Math.max(minChange, Math.min(maxChange, changePercent));
+    return padding.top + ((maxChange - clampedChange) / (maxChange - minChange)) * chartHeight;
+  }, [chartConfig]);
 
-  // Get X position for a sector
-  const getSectorX = (sectorIndex: number) => {
-    if (!chartConfig) return 0;
-    const { width, padding, sectorCount } = chartConfig;
+  // Get X position for a stock within a sector
+  const getStockX = useCallback((sectorIndex: number, stockIndex: number, totalStocks: number) => {
+    const { width, padding } = chartConfig;
+    const sectorCount = 11;
     const chartWidth = width - padding.left - padding.right;
     const sectorWidth = chartWidth / sectorCount;
-    return padding.left + sectorIndex * sectorWidth + sectorWidth / 2;
-  };
+    const sectorCenter = padding.left + sectorIndex * sectorWidth + sectorWidth / 2;
 
-  // Get bubble color
-  const getBubbleColor = (changePercent: number) => {
-    if (changePercent > 0) {
-      return 'rgba(34, 197, 94, 0.8)';
-    } else if (changePercent < 0) {
-      return 'rgba(239, 68, 68, 0.8)';
-    }
-    return 'rgba(156, 163, 175, 0.8)';
-  };
+    // Spread stocks horizontally within the sector column
+    const spread = sectorWidth * 0.8;
+    const offset = totalStocks > 1
+      ? ((stockIndex / (totalStocks - 1)) - 0.5) * spread
+      : 0;
 
-  // Add jitter to avoid overlapping bubbles
-  const getJitter = (index: number, total: number) => {
-    const spread = 30;
-    if (total <= 1) return 0;
-    const angle = (index / total) * Math.PI * 2;
-    return Math.sin(angle) * spread * (index % 2 === 0 ? 1 : 0.5);
-  };
+    return sectorCenter + offset;
+  }, [chartConfig]);
 
-  const handleBubbleMouseEnter = (stock: SectorRotationStock, event: React.MouseEvent) => {
+  // Get bubble radius (fixed size for now, can be based on volume/market cap later)
+  const getRadius = useCallback((stock: Stock) => {
+    // Larger radius for bigger moves
+    const absChange = Math.abs(stock.changePercent);
+    return Math.min(18, Math.max(6, 6 + absChange * 0.8));
+  }, []);
+
+  const handleMouseEnter = (stock: Stock, event: React.MouseEvent) => {
     const rect = (event.target as SVGElement).getBoundingClientRect();
     setTooltip({
       stock,
@@ -135,16 +115,16 @@ export function SectorRotationView() {
     });
   };
 
-  const handleBubbleMouseLeave = () => {
+  const handleMouseLeave = () => {
     setTooltip(null);
   };
 
   if (loading && !data) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="flex items-center justify-center h-96 bg-black">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <div className="text-gray-400">Loading sector rotation data...</div>
+          <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="text-gray-400">Loading sector data...</div>
         </div>
       </div>
     );
@@ -164,275 +144,170 @@ export function SectorRotationView() {
     );
   }
 
-  if (!data || !chartConfig) {
-    return (
-      <div className="text-gray-400 text-center py-8">
-        No sector rotation data available
-      </div>
-    );
+  if (!data) {
+    return <div className="text-gray-400 text-center py-8">No data available</div>;
   }
 
+  const { sectors } = data;
+  const sectorWidth = (chartConfig.width - chartConfig.padding.left - chartConfig.padding.right) / sectors.length;
+
   return (
-    <div className="space-y-6">
+    <div className="bg-black rounded-lg p-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-bold text-white">Sector Rotation</h2>
-        <div className="flex items-center gap-4">
-          {/* Timeframe Toggle */}
-          <div className="flex bg-gray-800 rounded-lg p-1">
-            <button
-              onClick={() => setTimeframe('daily')}
-              className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
-                timeframe === 'daily'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Daily
-            </button>
-            <button
-              onClick={() => setTimeframe('weekly')}
-              className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
-                timeframe === 'weekly'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Weekly
-            </button>
-          </div>
-          {/* Export Button */}
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
-          >
-            {exporting ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                Exporting...
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                Export PNG
-              </>
-            )}
-          </button>
-          {/* Refresh Button */}
-          <button
-            onClick={() => fetchData(true)}
-            disabled={loading}
-            className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white text-sm rounded-lg transition-colors"
-          >
-            {loading ? 'Loading...' : 'Refresh'}
-          </button>
-        </div>
+        <button
+          onClick={() => fetchData(true)}
+          disabled={loading}
+          className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-900 text-white text-sm rounded transition-colors"
+        >
+          {loading ? 'Loading...' : 'Refresh'}
+        </button>
       </div>
 
-      {/* Main Chart Container (for export) */}
-      <div ref={chartContainerRef} className="space-y-6">
-        {/* SPY Intraday Chart */}
-        {data.spyIntraday && data.spyIntraday.length > 0 && (
-          <SpyIntradayChart bars={data.spyIntraday} />
-        )}
+      {/* Bubble Chart */}
+      <div className="overflow-x-auto">
+        <svg
+          width={chartConfig.width}
+          height={chartConfig.height}
+          style={{ minWidth: chartConfig.width, background: '#0a0a0a' }}
+        >
+          {/* Sector columns (alternating dark backgrounds) */}
+          {sectors.map((_, i) => {
+            const x = chartConfig.padding.left + i * sectorWidth;
+            return (
+              <rect
+                key={`bg-${i}`}
+                x={x}
+                y={chartConfig.padding.top}
+                width={sectorWidth}
+                height={chartConfig.height - chartConfig.padding.top - chartConfig.padding.bottom}
+                fill={i % 2 === 0 ? '#1a1a1a' : '#0f0f0f'}
+              />
+            );
+          })}
 
-        {/* Bubble Chart */}
-        <div className="bg-gray-800 rounded-xl p-4 overflow-x-auto">
-          <svg
-            width={chartConfig.width}
-            height={chartConfig.height}
-            className="mx-auto"
-            style={{ minWidth: chartConfig.width }}
-          >
-            {/* Y-axis grid lines and labels */}
-            {[-15, -10, -5, 0, 5, 10, 15].filter(v => v >= chartConfig.minChange && v <= chartConfig.maxChange).map(value => {
-              const y = getY(value);
-              return (
-                <g key={value}>
-                  <line
-                    x1={chartConfig.padding.left}
-                    y1={y}
-                    x2={chartConfig.width - chartConfig.padding.right}
-                    y2={y}
-                    stroke={value === 0 ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)'}
-                    strokeWidth={value === 0 ? 2 : 1}
-                  />
-                  <text
-                    x={chartConfig.padding.left - 10}
-                    y={y + 4}
-                    fill="#9CA3AF"
-                    fontSize={12}
-                    textAnchor="end"
-                  >
-                    {value > 0 ? '+' : ''}{value}%
-                  </text>
-                  <text
-                    x={chartConfig.width - chartConfig.padding.right + 10}
-                    y={y + 4}
-                    fill="#9CA3AF"
-                    fontSize={12}
-                    textAnchor="start"
-                  >
-                    {value > 0 ? '+' : ''}{value}%
-                  </text>
-                </g>
-              );
-            })}
+          {/* Y-axis grid lines */}
+          {[-15, -10, -5, 0, 5, 10, 15].map(value => {
+            const y = getY(value);
+            return (
+              <g key={value}>
+                <line
+                  x1={chartConfig.padding.left}
+                  y1={y}
+                  x2={chartConfig.width - chartConfig.padding.right}
+                  y2={y}
+                  stroke={value === 0 ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.08)'}
+                  strokeWidth={value === 0 ? 1 : 0.5}
+                />
+                {/* Left label */}
+                <text
+                  x={chartConfig.padding.left - 8}
+                  y={y + 4}
+                  fill="#666"
+                  fontSize={11}
+                  textAnchor="end"
+                >
+                  {value > 0 ? '+' : ''}{value}%
+                </text>
+                {/* Right label */}
+                <text
+                  x={chartConfig.width - chartConfig.padding.right + 8}
+                  y={y + 4}
+                  fill="#666"
+                  fontSize={11}
+                  textAnchor="start"
+                >
+                  {value > 0 ? '+' : ''}{value}%
+                </text>
+              </g>
+            );
+          })}
 
-            {/* Sector columns and bubbles */}
-            {data.sectors.map((sector, sectorIndex) => {
-              const x = getSectorX(sectorIndex);
+          {/* Stock bubbles */}
+          {sectors.map((sector, sectorIndex) => (
+            <g key={sector.name}>
+              {sector.stocks.map((stock, stockIndex) => {
+                const x = getStockX(sectorIndex, stockIndex, sector.stocks.length);
+                const y = getY(stock.changePercent);
+                const r = getRadius(stock);
+                const isPositive = stock.changePercent >= 0;
 
-              return (
-                <g key={sector.name}>
-                  {/* Sector separator line */}
-                  {sectorIndex > 0 && (
-                    <line
-                      x1={x - (chartConfig.width - chartConfig.padding.left - chartConfig.padding.right) / (chartConfig.sectorCount * 2)}
-                      y1={chartConfig.padding.top}
-                      x2={x - (chartConfig.width - chartConfig.padding.left - chartConfig.padding.right) / (chartConfig.sectorCount * 2)}
-                      y2={chartConfig.height - chartConfig.padding.bottom}
-                      stroke="rgba(255,255,255,0.05)"
-                      strokeDasharray="4,4"
+                return (
+                  <g key={stock.symbol}>
+                    {/* Bubble */}
+                    <circle
+                      cx={x}
+                      cy={y}
+                      r={r}
+                      fill={isPositive ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)'}
+                      stroke={isPositive ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)'}
+                      strokeWidth={1}
+                      className="cursor-pointer transition-opacity hover:opacity-80"
+                      onMouseEnter={(e) => handleMouseEnter(stock, e)}
+                      onMouseLeave={handleMouseLeave}
                     />
-                  )}
+                    {/* Symbol label (only for larger bubbles or significant moves) */}
+                    {(Math.abs(stock.changePercent) > 3 || r > 10) && (
+                      <text
+                        x={x}
+                        y={y - r - 4}
+                        fill={isPositive ? '#22c55e' : '#ef4444'}
+                        fontSize={9}
+                        textAnchor="middle"
+                        className="pointer-events-none font-medium"
+                      >
+                        {stock.symbol}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          ))}
 
-                  {/* Stock bubbles */}
-                  {sector.stocks.map((stock, stockIndex) => {
-                    const bubbleX = x + getJitter(stockIndex, sector.stocks.length);
-                    const bubbleY = getY(stock.changePercent);
-                    const radius = getRadius(stock.relativeVolume);
-                    const color = getBubbleColor(stock.changePercent);
+          {/* Sector labels and averages at bottom */}
+          {sectors.map((sector, i) => {
+            const x = chartConfig.padding.left + i * sectorWidth + sectorWidth / 2;
+            const y = chartConfig.height - chartConfig.padding.bottom;
+            const isPositive = sector.avgChange >= 0;
 
-                    return (
-                      <g key={stock.symbol}>
-                        <circle
-                          cx={bubbleX}
-                          cy={bubbleY}
-                          r={radius}
-                          fill={color}
-                          stroke={stock.isNewHigh ? '#FFD700' : stock.isNewLow ? '#FF6B6B' : 'transparent'}
-                          strokeWidth={2}
-                          className="cursor-pointer transition-all hover:opacity-80"
-                          onMouseEnter={(e) => handleBubbleMouseEnter(stock, e)}
-                          onMouseLeave={handleBubbleMouseLeave}
-                        />
-                        {radius >= 8 && (
-                          <text
-                            x={bubbleX}
-                            y={bubbleY + radius + 12}
-                            fill="#9CA3AF"
-                            fontSize={9}
-                            textAnchor="middle"
-                            className="pointer-events-none"
-                          >
-                            {stock.symbol}
-                          </text>
-                        )}
-                      </g>
-                    );
-                  })}
+            return (
+              <g key={`label-${sector.name}`}>
+                {/* Sector average box */}
+                <rect
+                  x={x - 28}
+                  y={y + 8}
+                  width={56}
+                  height={22}
+                  rx={3}
+                  fill={isPositive ? 'rgba(34, 197, 94, 0.8)' : 'rgba(239, 68, 68, 0.8)'}
+                />
+                <text
+                  x={x}
+                  y={y + 23}
+                  fill="white"
+                  fontSize={11}
+                  fontWeight="bold"
+                  textAnchor="middle"
+                >
+                  {isPositive ? '+' : ''}{sector.avgChange.toFixed(1)}%
+                </text>
 
-                  {/* Sector label */}
-                  <text
-                    x={x}
-                    y={chartConfig.height - chartConfig.padding.bottom + 20}
-                    fill="white"
-                    fontSize={11}
-                    fontWeight="bold"
-                    textAnchor="middle"
-                  >
-                    {sector.shortName}
-                  </text>
-
-                  {/* Sector average change */}
-                  <text
-                    x={x}
-                    y={chartConfig.height - chartConfig.padding.bottom + 38}
-                    fill={sector.avgChange >= 0 ? '#22C55E' : '#EF4444'}
-                    fontSize={11}
-                    textAnchor="middle"
-                  >
-                    {sector.avgChange >= 0 ? '+' : ''}{sector.avgChange.toFixed(1)}%
-                  </text>
-
-                  {/* Sparkline */}
-                  {data.sparklines && data.sparklines[sector.shortName] && (
-                    <g transform={`translate(${x - 25}, ${chartConfig.height - chartConfig.padding.bottom + 48})`}>
-                      <Sparkline data={data.sparklines[sector.shortName]} width={50} height={20} />
-                    </g>
-                  )}
-                </g>
-              );
-            })}
-          </svg>
-        </div>
-
-        {/* Historical Comparison Row */}
-        {data.historical && (
-          <div className="bg-gray-800 rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-700">
-              <h3 className="text-lg font-semibold text-white">Historical Comparison</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-900/50">
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Comparison</th>
-                    {data.sectors.map(sector => (
-                      <th key={sector.shortName} className="px-3 py-2 text-center text-xs font-medium text-gray-400 uppercase">
-                        {sector.shortName}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-t border-gray-700">
-                    <td className="px-4 py-3 text-sm text-gray-300">Today</td>
-                    {data.sectors.map(sector => (
-                      <td key={`today-${sector.shortName}`} className="px-3 py-3 text-center">
-                        <span className={`text-sm font-medium ${sector.avgChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          {sector.avgChange >= 0 ? '+' : ''}{sector.avgChange.toFixed(2)}%
-                        </span>
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="border-t border-gray-700">
-                    <td className="px-4 py-3 text-sm text-gray-300">vs Yesterday</td>
-                    {data.sectors.map(sector => {
-                      const hist = data.historical[sector.shortName];
-                      const diff = hist ? sector.avgChange - hist.yesterdayAvg : 0;
-                      return (
-                        <td key={`yest-${sector.shortName}`} className="px-3 py-3 text-center">
-                          <span className={`text-sm ${diff >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {diff >= 0 ? '+' : ''}{diff.toFixed(2)}%
-                          </span>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                  <tr className="border-t border-gray-700">
-                    <td className="px-4 py-3 text-sm text-gray-300">vs Week Ago</td>
-                    {data.sectors.map(sector => {
-                      const hist = data.historical[sector.shortName];
-                      const weekChange = hist ? hist.weekAgoAvg : 0;
-                      return (
-                        <td key={`week-${sector.shortName}`} className="px-3 py-3 text-center">
-                          <span className={`text-sm ${weekChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {weekChange >= 0 ? '+' : ''}{weekChange.toFixed(2)}%
-                          </span>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+                {/* Sector name */}
+                <text
+                  x={x}
+                  y={y + 48}
+                  fill="#888"
+                  fontSize={10}
+                  textAnchor="middle"
+                >
+                  {sector.shortName}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
       </div>
 
       {/* Tooltip */}
@@ -445,287 +320,15 @@ export function SectorRotationView() {
             transform: 'translate(-50%, -100%)'
           }}
         >
-          <div className="text-white font-bold">{tooltip.stock.symbol}</div>
+          <div className="text-white font-bold text-lg">{tooltip.stock.symbol}</div>
           <div className={tooltip.stock.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}>
             {tooltip.stock.changePercent >= 0 ? '+' : ''}{tooltip.stock.changePercent.toFixed(2)}%
           </div>
           <div className="text-gray-400 text-sm">
-            Price: ${tooltip.stock.price.toFixed(2)}
+            ${tooltip.stock.price.toFixed(2)}
           </div>
-          <div className="text-gray-400 text-sm">
-            Vol: {(tooltip.stock.relativeVolume).toFixed(1)}x avg
-          </div>
-          {tooltip.stock.isNewHigh && (
-            <div className="text-yellow-400 text-sm">52W High</div>
-          )}
-          {tooltip.stock.isNewLow && (
-            <div className="text-red-400 text-sm">52W Low</div>
-          )}
         </div>
       )}
-
-      {/* Legend */}
-      <div className="flex items-center justify-center gap-6 text-sm text-gray-400">
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-green-500/80"></div>
-          <span>Positive</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-red-500/80"></div>
-          <span>Negative</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full border-2 border-yellow-400 bg-transparent"></div>
-          <span>52W High</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-full bg-gray-500/50"></div>
-          <span>High Volume</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-gray-500/50"></div>
-          <span>Low Volume</span>
-        </div>
-      </div>
-
-      {/* New Highs / New Lows Table */}
-      <div className="bg-gray-800 rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-700">
-          <h3 className="text-lg font-semibold text-white">New Highs / New Lows by Sector</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gray-900/50">
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Metric</th>
-                {data.sectors.map(sector => (
-                  <th key={sector.shortName} className="px-3 py-2 text-center text-xs font-medium text-gray-400 uppercase">
-                    {sector.shortName}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-t border-gray-700">
-                <td className="px-4 py-3 text-sm text-gray-300">New High</td>
-                {data.sectors.map(sector => (
-                  <td key={`high-${sector.shortName}`} className="px-3 py-3 text-center">
-                    <span className={`text-sm font-medium ${sector.newHighs > 0 ? 'text-green-400' : 'text-gray-500'}`}>
-                      {sector.newHighs}
-                    </span>
-                  </td>
-                ))}
-              </tr>
-              <tr className="border-t border-gray-700">
-                <td className="px-4 py-3 text-sm text-gray-300">New Low</td>
-                {data.sectors.map(sector => (
-                  <td key={`low-${sector.shortName}`} className="px-3 py-3 text-center">
-                    <span className={`text-sm font-medium ${sector.newLows > 0 ? 'text-red-400' : 'text-gray-500'}`}>
-                      {sector.newLows}
-                    </span>
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Sector Details */}
-      <div className="bg-gray-800 rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-700">
-          <h3 className="text-lg font-semibold text-white">Sector Details</h3>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4">
-          {data.sectors.map(sector => (
-            <SectorCard key={sector.name} sector={sector} />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// SPY Intraday Chart Component
-function SpyIntradayChart({ bars }: { bars: SpyIntradayBar[] }) {
-  if (!bars || bars.length === 0) return null;
-
-  const width = 1200;
-  const height = 120;
-  const padding = { top: 20, right: 60, bottom: 30, left: 60 };
-
-  const prices = bars.map(b => b.close);
-  const minPrice = Math.min(...prices) * 0.999;
-  const maxPrice = Math.max(...prices) * 1.001;
-  const priceRange = maxPrice - minPrice;
-
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-
-  const getX = (index: number) => padding.left + (index / (bars.length - 1)) * chartWidth;
-  const getY = (price: number) => padding.top + ((maxPrice - price) / priceRange) * chartHeight;
-
-  const firstPrice = bars[0]?.close || 0;
-  const lastPrice = bars[bars.length - 1]?.close || 0;
-  const changePercent = firstPrice > 0 ? ((lastPrice - firstPrice) / firstPrice) * 100 : 0;
-  const isPositive = changePercent >= 0;
-
-  // Create path
-  const pathData = bars.map((bar, i) => {
-    const x = getX(i);
-    const y = getY(bar.close);
-    return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-  }).join(' ');
-
-  // Create area fill path
-  const areaPath = pathData + ` L ${getX(bars.length - 1)} ${height - padding.bottom} L ${padding.left} ${height - padding.bottom} Z`;
-
-  return (
-    <div className="bg-gray-800 rounded-xl p-4">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-3">
-          <span className="text-white font-bold">SPY</span>
-          <span className="text-gray-400">${lastPrice.toFixed(2)}</span>
-          <span className={isPositive ? 'text-green-400' : 'text-red-400'}>
-            {isPositive ? '+' : ''}{changePercent.toFixed(2)}%
-          </span>
-        </div>
-        <span className="text-gray-500 text-sm">Intraday</span>
-      </div>
-      <svg width={width} height={height} className="mx-auto" style={{ minWidth: width }}>
-        {/* Gradient fill */}
-        <defs>
-          <linearGradient id="spyGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={isPositive ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'} />
-            <stop offset="100%" stopColor={isPositive ? 'rgba(34, 197, 94, 0)' : 'rgba(239, 68, 68, 0)'} />
-          </linearGradient>
-        </defs>
-
-        {/* Area fill */}
-        <path d={areaPath} fill="url(#spyGradient)" />
-
-        {/* Price line */}
-        <path
-          d={pathData}
-          fill="none"
-          stroke={isPositive ? '#22C55E' : '#EF4444'}
-          strokeWidth={2}
-        />
-
-        {/* Zero line (opening price) */}
-        <line
-          x1={padding.left}
-          y1={getY(firstPrice)}
-          x2={width - padding.right}
-          y2={getY(firstPrice)}
-          stroke="rgba(255,255,255,0.2)"
-          strokeDasharray="4,4"
-        />
-
-        {/* Y-axis labels */}
-        <text x={padding.left - 5} y={padding.top + 4} fill="#9CA3AF" fontSize={10} textAnchor="end">
-          ${maxPrice.toFixed(2)}
-        </text>
-        <text x={padding.left - 5} y={height - padding.bottom} fill="#9CA3AF" fontSize={10} textAnchor="end">
-          ${minPrice.toFixed(2)}
-        </text>
-
-        {/* Time labels */}
-        <text x={padding.left} y={height - 5} fill="#9CA3AF" fontSize={10} textAnchor="start">
-          9:30
-        </text>
-        <text x={width - padding.right} y={height - 5} fill="#9CA3AF" fontSize={10} textAnchor="end">
-          Now
-        </text>
-      </svg>
-    </div>
-  );
-}
-
-// Sparkline Component
-function Sparkline({ data, width, height }: { data: { date: number; change: number }[]; width: number; height: number }) {
-  if (!data || data.length < 2) return null;
-
-  const changes = data.map(d => d.change);
-  const min = Math.min(...changes, 0);
-  const max = Math.max(...changes, 0);
-  const range = max - min || 1;
-
-  const getX = (i: number) => (i / (data.length - 1)) * width;
-  const getY = (val: number) => height - ((val - min) / range) * height;
-
-  const pathData = data.map((d, i) => {
-    const x = getX(i);
-    const y = getY(d.change);
-    return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-  }).join(' ');
-
-  const lastChange = data[data.length - 1]?.change || 0;
-  const isPositive = lastChange >= 0;
-
-  return (
-    <svg width={width} height={height}>
-      <path
-        d={pathData}
-        fill="none"
-        stroke={isPositive ? '#22C55E' : '#EF4444'}
-        strokeWidth={1.5}
-      />
-    </svg>
-  );
-}
-
-// Sector Card Component
-function SectorCard({ sector }: { sector: SectorSummary }) {
-  const [expanded, setExpanded] = useState(false);
-
-  const sortedStocks = [...sector.stocks].sort((a, b) => b.changePercent - a.changePercent);
-  const displayStocks = expanded ? sortedStocks : sortedStocks.slice(0, 5);
-
-  return (
-    <div className="bg-gray-900 rounded-lg overflow-hidden">
-      <div
-        className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-gray-800/50"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div>
-          <span className="font-medium text-white">{sector.name}</span>
-          <span className={`ml-2 text-sm ${sector.avgChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            {sector.avgChange >= 0 ? '+' : ''}{sector.avgChange.toFixed(2)}%
-          </span>
-        </div>
-        <svg
-          className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </div>
-      <div className="px-3 pb-2">
-        {displayStocks.map(stock => (
-          <div key={stock.symbol} className="flex items-center justify-between py-1 text-sm">
-            <div className="flex items-center gap-2">
-              <span className="text-gray-300">{stock.symbol}</span>
-              {stock.isNewHigh && (
-                <span className="text-xs text-yellow-400">HI</span>
-              )}
-              {stock.isNewLow && (
-                <span className="text-xs text-red-400">LO</span>
-              )}
-            </div>
-            <span className={stock.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}>
-              {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
-            </span>
-          </div>
-        ))}
-        {!expanded && sortedStocks.length > 5 && (
-          <div className="text-xs text-gray-500 text-center pt-1">
-            +{sortedStocks.length - 5} more
-          </div>
-        )}
-      </div>
     </div>
   );
 }
