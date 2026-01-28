@@ -157,6 +157,7 @@ def get_history(key_prefix: str, days: int = HISTORY_DAYS) -> List[Dict[str, Any
     """
     Get historical snapshots for the last N days.
     Returns list of {date, data} objects, newest first.
+    Filters out any dates in the future (relative to PST).
     """
     client = get_redis_client()
     if not client:
@@ -167,8 +168,16 @@ def get_history(key_prefix: str, days: int = HISTORY_DAYS) -> List[Dict[str, Any
         dates_key = f"{key_prefix}:history:dates"
         dates = client.zrevrange(dates_key, 0, days - 1)
 
+        # Get today's date in PST to filter out future dates
+        today = today_pst()
+
         history = []
         for date in dates:
+            # Skip future dates (could happen if data was saved with UTC dates)
+            if date > today:
+                logging.info(f"Skipping future date {date} (today PST: {today})")
+                continue
+
             snapshot_key = f"{key_prefix}:history:{date}"
             data = client.get(snapshot_key)
             if data:

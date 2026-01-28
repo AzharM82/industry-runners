@@ -337,10 +337,26 @@ export function BreadthIndicatorsView() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  // Get today's date string in YYYY-MM-DD format
+  // Get today's date string in YYYY-MM-DD format (PST timezone)
   const getTodayDateStr = () => {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
+    const now = new Date();
+    // Convert to PST (UTC-8) / PDT (UTC-7)
+    const pstOffset = -8 * 60; // PST offset in minutes
+    const pdtOffset = -7 * 60; // PDT offset in minutes
+
+    // Check if DST is in effect (roughly March-November)
+    const month = now.getUTCMonth();
+    const isDST = month >= 2 && month <= 10; // March (2) to November (10)
+    const offset = isDST ? pdtOffset : pstOffset;
+
+    const pstTime = new Date(now.getTime() + (now.getTimezoneOffset() + offset) * 60000);
+    return pstTime.toISOString().split('T')[0];
+  };
+
+  // Check if a date is in the future (relative to PST today)
+  const isFutureDate = (dateStr: string) => {
+    const todayStr = getTodayDateStr();
+    return dateStr > todayStr;
   };
 
   // Check if a date is a business day (Mon-Fri)
@@ -362,10 +378,10 @@ export function BreadthIndicatorsView() {
       seenDates.add(todayStr);
     }
 
-    // Add historical data from Redis (excluding duplicates and weekends)
+    // Add historical data from Redis (excluding duplicates, weekends, and future dates)
     if (historyData?.realtime) {
       for (const item of historyData.realtime) {
-        if (!seenDates.has(item.date) && isBusinessDay(item.date)) {
+        if (!seenDates.has(item.date) && isBusinessDay(item.date) && !isFutureDate(item.date)) {
           items.push({ date: item.date, data: item.data as BreadthData });
           seenDates.add(item.date);
         }
@@ -390,10 +406,10 @@ export function BreadthIndicatorsView() {
       seenDates.add(todayStr);
     }
 
-    // Add historical data from Redis (excluding duplicates and weekends)
+    // Add historical data from Redis (excluding duplicates, weekends, and future dates)
     if (historyData?.daily) {
       for (const item of historyData.daily) {
-        if (!seenDates.has(item.date) && isBusinessDay(item.date)) {
+        if (!seenDates.has(item.date) && isBusinessDay(item.date) && !isFutureDate(item.date)) {
           items.push({ date: item.date, data: item.data as FinvizBreadthData });
           seenDates.add(item.date);
         }
