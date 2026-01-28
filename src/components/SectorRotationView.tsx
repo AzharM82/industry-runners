@@ -63,12 +63,12 @@ export function SectorRotationView() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // Chart configuration
+  // Chart configuration - use full width with minimal padding
   const chartConfig = useMemo(() => {
     return {
       width: 1400,
       height: 600,
-      padding: { top: 30, right: 50, bottom: 60, left: 50 },
+      padding: { top: 30, right: 35, bottom: 60, left: 35 },
       minChange: -15,
       maxChange: 15
     };
@@ -83,15 +83,14 @@ export function SectorRotationView() {
   }, [chartConfig]);
 
   // Get X position for a stock within a sector
-  const getStockX = useCallback((sectorIndex: number, stockIndex: number, totalStocks: number) => {
+  const getStockX = useCallback((sectorIndex: number, stockIndex: number, totalStocks: number, sectorCount: number) => {
     const { width, padding } = chartConfig;
-    const sectorCount = 11;
     const chartWidth = width - padding.left - padding.right;
     const sectorWidth = chartWidth / sectorCount;
     const sectorCenter = padding.left + sectorIndex * sectorWidth + sectorWidth / 2;
 
     // Spread stocks horizontally within the sector column
-    const spread = sectorWidth * 0.8;
+    const spread = sectorWidth * 0.85;
     const offset = totalStocks > 1
       ? ((stockIndex / (totalStocks - 1)) - 0.5) * spread
       : 0;
@@ -148,7 +147,8 @@ export function SectorRotationView() {
     return <div className="text-gray-400 text-center py-8">No data available</div>;
   }
 
-  const { sectors } = data;
+  // Sort sectors by avgChange (highest to lowest, left to right)
+  const sectors = [...data.sectors].sort((a, b) => b.avgChange - a.avgChange);
   const sectorWidth = (chartConfig.width - chartConfig.padding.left - chartConfig.padding.right) / sectors.length;
 
   return (
@@ -228,22 +228,22 @@ export function SectorRotationView() {
           {sectors.map((sector, sectorIndex) => (
             <g key={sector.name}>
               {sector.stocks.map((stock, stockIndex) => {
-                const x = getStockX(sectorIndex, stockIndex, sector.stocks.length);
+                const x = getStockX(sectorIndex, stockIndex, sector.stocks.length, sectors.length);
                 const y = getY(stock.changePercent);
                 const r = getRadius(stock);
                 const isPositive = stock.changePercent >= 0;
 
                 return (
                   <g key={stock.symbol}>
-                    {/* Bubble */}
+                    {/* Bubble - transparent fill with solid stroke */}
                     <circle
                       cx={x}
                       cy={y}
                       r={r}
-                      fill={isPositive ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)'}
+                      fill={isPositive ? 'rgba(34, 197, 94, 0.25)' : 'rgba(239, 68, 68, 0.25)'}
                       stroke={isPositive ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)'}
-                      strokeWidth={1}
-                      className="cursor-pointer transition-opacity hover:opacity-80"
+                      strokeWidth={1.5}
+                      className="cursor-pointer transition-opacity hover:opacity-70"
                       onMouseEnter={(e) => handleMouseEnter(stock, e)}
                       onMouseLeave={handleMouseLeave}
                     />
