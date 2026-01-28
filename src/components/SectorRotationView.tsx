@@ -119,7 +119,7 @@ export function SectorRotationView() {
     return {
       width: chartWidth,
       height: 700,
-      padding: { top: 30, right: 30, bottom: 60, left: 30 },
+      padding: { top: 30, right: 40, bottom: 65, left: 40 },
       minChange: -15,
       maxChange: 15
     };
@@ -271,9 +271,10 @@ export function SectorRotationView() {
                 {/* Left label */}
                 <text
                   x={chartConfig.padding.left - 8}
-                  y={y + 4}
-                  fill="#666"
-                  fontSize={11}
+                  y={y + 5}
+                  fill="#888"
+                  fontSize={14}
+                  fontWeight="500"
                   textAnchor="end"
                 >
                   {value > 0 ? '+' : ''}{value}%
@@ -281,9 +282,10 @@ export function SectorRotationView() {
                 {/* Right label */}
                 <text
                   x={chartConfig.width - chartConfig.padding.right + 8}
-                  y={y + 4}
-                  fill="#666"
-                  fontSize={11}
+                  y={y + 5}
+                  fill="#888"
+                  fontSize={14}
+                  fontWeight="500"
                   textAnchor="start"
                 >
                   {value > 0 ? '+' : ''}{value}%
@@ -344,18 +346,18 @@ export function SectorRotationView() {
               <g key={`label-${sector.name}`}>
                 {/* Sector average box */}
                 <rect
-                  x={x - 28}
-                  y={y + 8}
-                  width={56}
-                  height={22}
-                  rx={3}
+                  x={x - 32}
+                  y={y + 6}
+                  width={64}
+                  height={26}
+                  rx={4}
                   fill={isPositive ? 'rgba(34, 197, 94, 0.8)' : 'rgba(239, 68, 68, 0.8)'}
                 />
                 <text
                   x={x}
-                  y={y + 23}
+                  y={y + 24}
                   fill="white"
-                  fontSize={11}
+                  fontSize={13}
                   fontWeight="bold"
                   textAnchor="middle"
                 >
@@ -366,8 +368,9 @@ export function SectorRotationView() {
                 <text
                   x={x}
                   y={y + 48}
-                  fill="#888"
-                  fontSize={10}
+                  fill="#aaa"
+                  fontSize={13}
+                  fontWeight="500"
                   textAnchor="middle"
                 >
                   {sector.shortName}
