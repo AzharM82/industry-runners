@@ -422,7 +422,7 @@ export function SectorRotationView() {
             </table>
           </div>
           <div className="text-xs text-gray-500 mt-2">
-            Format: <span className="text-green-400">NH</span> / <span className="text-red-400">NL</span> (New 52-Week Highs / New 52-Week Lows)
+            Format: <span className="text-green-400">NH</span> / <span className="text-red-400">NL</span> (New 15-Day Highs / New 15-Day Lows)
           </div>
         </div>
       )}

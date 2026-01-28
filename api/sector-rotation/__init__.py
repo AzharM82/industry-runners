@@ -14,6 +14,7 @@ POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
 POLYGON_BASE_URL = 'https://api.polygon.io'
 CACHE_TTL_MARKET_OPEN = 60  # 1 minute during market hours
 CACHE_TTL_MARKET_CLOSED = 3600  # 1 hour when market closed
+CACHE_TTL_15DAY_DATA = 3600  # 1 hour cache for 15-day historical data
 
 # Sector data - 11 sectors with 15 stocks each
 SECTORS = [
@@ -89,6 +90,58 @@ def get_all_symbols() -> list:
         for stock in sector['stocks']:
             symbols.add(stock)
     return list(symbols)
+
+
+def get_15day_high_low(symbols: list) -> dict:
+    """Get 15-day high and low for all symbols"""
+    cache_key = "sector-rotation:15day-highlow"
+    cached = get_cached(cache_key)
+    if cached:
+        logging.info("Using cached 15-day high/low data")
+        return cached
+
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+
+    et_tz = ZoneInfo('America/New_York')
+    today = datetime.now(et_tz)
+
+    # Go back 20 calendar days to ensure we get 15 trading days
+    from_date = (today - timedelta(days=25)).strftime('%Y-%m-%d')
+    to_date = today.strftime('%Y-%m-%d')
+
+    result = {}
+
+    # Fetch aggregates for each symbol (grouped bars endpoint)
+    for symbol in symbols:
+        try:
+            data = polygon_request(
+                f"/v2/aggs/ticker/{symbol}/range/1/day/{from_date}/{to_date}?adjusted=true&sort=desc&limit=15",
+                timeout=10
+            )
+
+            if '_error' not in data and data.get('results'):
+                bars = data['results'][:15]  # Last 15 trading days
+                if bars:
+                    highs = [bar.get('h', 0) for bar in bars if bar.get('h')]
+                    lows = [bar.get('l', 0) for bar in bars if bar.get('l')]
+
+                    result[symbol] = {
+                        'high15d': max(highs) if highs else 0,
+                        'low15d': min(lows) if lows else 0
+                    }
+        except Exception as e:
+            logging.warning(f"Error fetching 15-day data for {symbol}: {e}")
+            continue
+
+    # Cache for 1 hour
+    if result:
+        set_cached(cache_key, result, CACHE_TTL_15DAY_DATA)
+        logging.info(f"Cached 15-day high/low data for {len(result)} symbols")
+
+    return result
 
 
 def save_daily_nh_nl(sectors_data: list, date_str: str):
@@ -171,7 +224,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         all_symbols = get_all_symbols()
 
-        # Fetch snapshot data in batches - includes 52-week high/low
+        # Get 15-day high/low data for all symbols
+        high_low_15d = get_15day_high_low(all_symbols)
+
+        # Fetch snapshot data in batches
         all_quotes = {}
         batch_size = 50
 
@@ -196,21 +252,16 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     if prev_close > 0:
                         change_pct = ((current_price - prev_close) / prev_close) * 100
 
-                    # Get 52-week high/low from min/max aggregates
-                    week52_high = ticker_data.get('min', {}).get('h', 0) or 0
-                    week52_low = ticker_data.get('min', {}).get('l', 0) or 0
+                    # Get 15-day high/low
+                    symbol_15d = high_low_15d.get(symbol, {})
+                    high_15d = symbol_15d.get('high15d', 0)
+                    low_15d = symbol_15d.get('low15d', 0)
 
-                    # Fallback: use prevDay high/low if min not available
-                    if week52_high == 0:
-                        week52_high = prev_day.get('h', current_price * 1.5)
-                    if week52_low == 0:
-                        week52_low = prev_day.get('l', current_price * 0.5)
-
-                    # Determine if new 52-week high or low
-                    # New high: today's high >= 52-week high (within 1%)
-                    # New low: today's low <= 52-week low (within 1%)
-                    is_new_high = day_high > 0 and week52_high > 0 and day_high >= week52_high * 0.99
-                    is_new_low = day_low > 0 and week52_low > 0 and day_low <= week52_low * 1.01
+                    # Determine if new 15-day high or low
+                    # New high: today's high >= 15-day high
+                    # New low: today's low <= 15-day low
+                    is_new_high = day_high > 0 and high_15d > 0 and day_high >= high_15d
+                    is_new_low = day_low > 0 and low_15d > 0 and day_low <= low_15d
 
                     all_quotes[symbol] = {
                         'price': current_price,
@@ -218,8 +269,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                         'volume': day.get('v', 0),
                         'dayHigh': day_high,
                         'dayLow': day_low,
-                        'week52High': week52_high,
-                        'week52Low': week52_low,
+                        'high15d': high_15d,
+                        'low15d': low_15d,
                         'isNewHigh': is_new_high,
                         'isNewLow': is_new_low
                     }
