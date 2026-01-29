@@ -28,21 +28,21 @@ const videoCategories: VideoCategory[] = [
     id: 'getting-started',
     title: '1. Getting Started in the Stock Market',
     channels: [
-      { name: 'Ali Abdaal', url: 'https://www.youtube.com/watch?v=2NKmCQ-XfNc', description: 'Complete breakdown of investing basics, financial terms, and risk management', duration: '' },
-      { name: 'Ali Abdaal', url: 'https://www.youtube.com/watch?v=RouNXdkC0do', description: 'Updated 2024 version covering index funds and long-term investing', duration: '' },
+      { name: 'Ali Abdaal', url: 'https://www.youtube.com/watch?v=gFQNPmLKj1k', description: 'Complete breakdown of investing basics, financial terms, and risk management', duration: '' },
+      { name: 'Ali Abdaal', url: 'https://www.youtube.com/watch?v=lNdOtlpmH5U', description: 'Updated 2024 version covering index funds and long-term investing', duration: '' },
       { name: 'WhiteBoard Finance', url: 'https://www.youtube.com/watch?v=bJHr6_skXWc', description: 'Comprehensive 1-hour course on investing fundamentals by Marko', duration: '' },
-      { name: 'WhiteBoard Finance', url: 'https://www.youtube.com/watch?v=RouNXdkC0do', description: 'Updated beginner guide with live trading examples', duration: '' },
-      { name: 'Mark Tilbury', url: 'https://www.youtube.com/watch?v=lNdOtlpmH5U', description: 'Self-made millionaire explains fundamental vs technical analysis', duration: '' },
+      { name: 'WhiteBoard Finance', url: 'https://www.youtube.com/watch?v=2NKmCQ-XfNc', description: 'Updated beginner guide with live trading examples', duration: '' },
+      { name: 'Mark Tilbury', url: 'https://www.youtube.com/watch?v=tmryHfunyQ4', description: 'Self-made millionaire explains fundamental vs technical analysis', duration: '' },
     ]
   },
   {
     id: 'fundamentals',
     title: '2. Stock Fundamentals',
     channels: [
-      { name: 'TED-Ed', url: 'https://www.youtube.com/watch?v=Tt_3e482Pn0', description: 'Animated explainer on stock market fundamentals', duration: '' },
-      { name: 'The Plain Bagel', url: 'https://www.youtube.com/watch?v=gFQNPmLKj1k', description: 'CFA explains key differences between short-term trading and long-term investing', duration: '' },
-      { name: 'The Plain Bagel', url: 'https://www.youtube.com/watch?v=WEDIj9JBTC8', description: 'Understanding PE ratios and valuation metrics', duration: '' },
-      { name: 'Khan Academy', url: 'https://www.youtube.com/watch?v=p7HKvqRI_Bo', description: 'Simple explanation of earnings and earnings per share', duration: '' },
+      { name: 'TED-Ed', url: 'https://www.youtube.com/watch?v=p7HKvqRI_Bo', description: 'Animated explainer on stock market fundamentals', duration: '' },
+      { name: 'The Plain Bagel', url: 'https://www.youtube.com/watch?v=Tt_3e482Pn0', description: 'CFA explains key differences between short-term trading and long-term investing', duration: '' },
+      { name: 'The Plain Bagel', url: 'https://www.youtube.com/watch?v=RouNXdkC0do', description: 'Understanding PE ratios and valuation metrics', duration: '' },
+      { name: 'Khan Academy', url: 'https://www.youtube.com/watch?v=RouNXdkC0do', description: 'Simple explanation of earnings and earnings per share', duration: '' },
     ]
   },
   {
@@ -50,7 +50,7 @@ const videoCategories: VideoCategory[] = [
     title: '3. Technical Analysis',
     subtitle: 'Reading Charts & Price Action',
     channels: [
-      { name: 'Rayner Teo', url: 'https://www.youtube.com/watch?v=tmryHfunyQ4', description: 'Price action trading explained for bull and bear markets', duration: '' },
+      { name: 'Rayner Teo', url: 'https://www.youtube.com/watch?v=RG4qEMp2XcU', description: 'Price action trading explained for bull and bear markets', duration: '' },
     ]
   },
   {
@@ -58,7 +58,7 @@ const videoCategories: VideoCategory[] = [
     title: '4. Investing Wisdom',
     subtitle: 'Learn from the Best',
     channels: [
-      { name: 'Investor Center', url: 'https://www.youtube.com/watch?v=RG4qEMp2XcU', description: "Warren Buffett's Most Iconic Lecture - Classic Q&A with timeless investing wisdom", duration: '' },
+      { name: 'Investor Center', url: 'https://www.youtube.com/watch?v=WEDIj9JBTC8', description: "Warren Buffett's Most Iconic Lecture - Classic Q&A with timeless investing wisdom", duration: '' },
     ]
   },
 ];
