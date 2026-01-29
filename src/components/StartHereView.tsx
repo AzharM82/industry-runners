@@ -28,56 +28,58 @@ const videoCategories: VideoCategory[] = [
     id: 'getting-started',
     title: '1. Getting Started in the Stock Market',
     channels: [
-      { name: 'Charles Schwab', url: 'https://www.youtube.com/@CharlesSchwab', description: 'Professional broker education. Clear explanations on stocks & investing basics.', duration: '3-5 min' },
-      { name: 'Mark Tilbury', url: 'https://www.youtube.com/@MarkTilbury', description: '1.8M+ subs. Self-made millionaire sharing practical beginner tips.', duration: '5-8 min' },
-      { name: 'WhiteBoard Finance', url: 'https://www.youtube.com/@WhiteBoardFinance', description: 'Visual whiteboard explanations. Great for visual learners.', duration: '7-10 min' },
-      { name: "Let's Talk Money!", url: 'https://www.youtube.com/@JosephHogueCFA', description: 'CFA-certified educator with credible, straightforward content.', duration: '6-10 min' },
-      { name: 'Andrei Jikh', url: 'https://www.youtube.com/@AndreiJikh', description: 'Engaging content on investing basics and personal finance.', duration: '8-10 min' },
-    ]
-  },
-  {
-    id: 'read-charts',
-    title: '2. How to Read a Stock Chart',
-    channels: [
-      { name: 'TD Ameritrade', url: 'https://www.youtube.com/@TDAmeritrade', description: 'Technical analysis playlist: line charts, candlesticks, support/resistance.', duration: '3-8 min' },
-      { name: 'The Trading Channel', url: 'https://www.youtube.com/@TheTradingChannel', description: "Stephen Hart's beginner-friendly chart pattern videos.", duration: '5-10 min' },
-      { name: 'Wysetrade', url: 'https://www.youtube.com/@Wysetrade', description: 'Simplifies difficult chart reading concepts. High-quality videos.', duration: '6-10 min' },
-      { name: 'ClayTrader', url: 'https://www.youtube.com/@ClayTrader', description: 'Day trading education: tickers, timeframes, moving averages.', duration: '5-8 min' },
-      { name: 'Charting Wealth', url: 'https://www.youtube.com/@ChartingWealth', description: 'Daily market updates with chart analysis. Short, focused videos.', duration: '3-5 min' },
+      { name: 'Charles Schwab', url: 'https://www.youtube.com/watch?v=TYI_cvSygAE', description: 'Clear explanation of what stocks are, risks, and how they work', duration: '5 min' },
+      { name: 'Mark Tilbury', url: 'https://www.youtube.com/watch?v=oLMKPWXuhvM', description: 'Self-made millionaire explains stock picking strategies', duration: '15 min' },
+      { name: 'WhiteBoard Finance', url: 'https://www.youtube.com/watch?v=2xVnU99_c98', description: 'Comprehensive beginner course with live examples', duration: '45 min' },
+      { name: 'The Plain Bagel', url: 'https://www.youtube.com/watch?v=uiNAhLb6oTE', description: 'CFA-led unbiased education on investing fundamentals', duration: '12 min' },
+      { name: 'Andrei Jikh', url: 'https://www.youtube.com/watch?v=EQPmcE9Z9SI', description: 'Step-by-step value investing guide for beginners', duration: '13 min' },
     ]
   },
   {
     id: 'fundamentals',
-    title: '3. Stock Fundamentals',
+    title: '2. Stock Fundamentals',
     channels: [
-      { name: 'Charles Schwab', url: 'https://www.youtube.com/@CharlesSchwab', description: 'P/E ratios, earnings estimates, reading financial statements.', duration: '4-6 min' },
-      { name: 'The Plain Bagel', url: 'https://www.youtube.com/@ThePlainBagel', description: 'Richard Coffin CFA/CFP breaks down fundamentals with humor.', duration: '8-10 min' },
-      { name: 'Zerodha Varsity', url: 'https://www.youtube.com/@ZerodhaVarsity', description: 'Comprehensive modules on fundamental analysis for beginners.', duration: '5-10 min' },
-      { name: 'Pranjal Kamra', url: 'https://www.youtube.com/@PranjalKamra', description: '6M+ subs. Simplifies value investing and fundamentals.', duration: '8-10 min' },
-      { name: 'Ticker Symbol: YOU', url: 'https://www.youtube.com/@TickerSymbolYou', description: 'Succinct deep dives into company fundamentals. No fluff.', duration: '6-10 min' },
+      { name: 'The Plain Bagel', url: 'https://www.youtube.com/watch?v=bJHr6_skXWc', description: 'Understanding company financials and valuation', duration: '18 min' },
+      { name: 'Zerodha Varsity', url: 'https://www.youtube.com/watch?v=3y5RCqL6gXo', description: 'Complete fundamental analysis course playlist', duration: 'Series' },
+      { name: 'Pranjal Kamra', url: 'https://www.youtube.com/watch?v=fqhYBTg73fw', description: 'Practical stock analysis for Indian market beginners', duration: '20 min' },
+      { name: 'New Money', url: 'https://www.youtube.com/watch?v=VBl0bYfgUJk', description: 'Breaking down balance sheets and income statements', duration: '14 min' },
+      { name: 'Learn to Invest', url: 'https://www.youtube.com/watch?v=2wR7LpqK_Ug', description: 'Ex-equity research analyst teaches stock analysis', duration: '22 min' },
+    ]
+  },
+  {
+    id: 'technical-analysis',
+    title: '3. Technical Analysis',
+    subtitle: 'Reading Charts & Patterns',
+    channels: [
+      { name: 'TD Ameritrade (Schwab)', url: 'https://www.youtube.com/watch?v=4KGvoy_Ke9Y', description: 'Introduction to chart reading and technical indicators', duration: '8 min' },
+      { name: 'ClayTrader', url: 'https://www.youtube.com/watch?v=yaHEIFvHh5g', description: 'Day trading educator explains charts and patterns', duration: '25 min' },
+      { name: 'Rayner Teo', url: 'https://www.youtube.com/watch?v=tmryHfunyQ4', description: 'Complete free technical analysis course', duration: '1 hr' },
+      { name: 'The Trading Channel', url: 'https://www.youtube.com/watch?v=bwZPGDsKFZU', description: 'Understanding common chart patterns', duration: '20 min' },
+      { name: 'Trading 212', url: 'https://www.youtube.com/watch?v=2NKmCQ-XfNc', description: 'Beginner-friendly intro to reading charts', duration: '15 min' },
     ]
   },
   {
     id: 'orders',
-    title: '4. Placing Various Stock Orders',
-    subtitle: 'Market Orders, Limit Orders, Stop Orders',
+    title: '4. Placing Stock Orders',
+    subtitle: 'Market, Limit & Stop Orders',
     channels: [
-      { name: 'TD Ameritrade', url: 'https://www.youtube.com/@TDAmeritrade', description: 'Official broker content: market, limit, and stop orders explained.', duration: '3-5 min' },
-      { name: 'Mind Math Money', url: 'https://www.youtube.com/@MindMathMoney', description: 'Buy/sell limit and stop orders. Clear, beginner-friendly format.', duration: '5-8 min' },
-      { name: 'TradingLab', url: 'https://www.youtube.com/@TradingLab', description: 'High-quality videos explaining order execution strategies.', duration: '6-10 min' },
-      { name: 'Warrior Trading', url: 'https://www.youtube.com/@WarriorTrading', description: 'Platform walkthroughs for placing different order types.', duration: '5-8 min' },
-      { name: 'Financial Education', url: 'https://www.youtube.com/@FinancialEducation', description: '721K+ subs. Practical advice on placing orders effectively.', duration: '7-10 min' },
+      { name: 'TD Ameritrade (Schwab)', url: 'https://www.youtube.com/watch?v=XtQetkDe1eE', description: 'Step-by-step guide to placing your first trade', duration: '6 min' },
+      { name: 'Charles Schwab', url: 'https://www.youtube.com/watch?v=08R_TJhAOGo', description: 'Market, limit, and stop orders explained', duration: '5 min' },
+      { name: 'Fidelity', url: 'https://www.youtube.com/watch?v=CYJC-5MTZWY', description: 'When to use different order types', duration: '7 min' },
+      { name: 'Warrior Trading', url: 'https://www.youtube.com/watch?v=b8qyfYAu2v8', description: 'Advanced order types for active traders', duration: '12 min' },
+      { name: 'WhiteBoard Finance', url: 'https://www.youtube.com/watch?v=GRlMwST3y5s', description: 'Complete course including order placement', duration: '35 min' },
     ]
   },
   {
     id: 'tracking',
-    title: '5. Tracking Your Performance',
-    subtitle: 'Trading Journals & Portfolio Tracking',
+    title: '5. Trading Journal & Psychology',
+    subtitle: 'Track Performance & Manage Emotions',
     channels: [
-      { name: 'TraderSync', url: 'https://www.youtube.com/@TraderSync', description: 'Leading journal platform tutorials: tracking trades, finding edge.', duration: '5-10 min' },
-      { name: 'Timothy Sykes', url: 'https://www.youtube.com/@TimothySykes', description: 'Why journaling matters. Track entry/exit points, stop losses.', duration: '6-10 min' },
-      { name: 'TradesViz', url: 'https://www.youtube.com/@TradesViz', description: '600+ statistics and metrics for analyzing trading performance.', duration: '5-8 min' },
-      { name: 'Damien Talks Money', url: 'https://www.youtube.com/@DamienTalksMoney', description: 'Portfolio diversification and risk management tracking.', duration: '8-10 min' },
+      { name: 'TraderSync', url: 'https://www.youtube.com/watch?v=qphdPy6hKfM', description: 'Importance of tracking and reviewing trades', duration: '10 min' },
+      { name: 'Timothy Sykes', url: 'https://www.youtube.com/watch?v=4KGvoy_Ke9Y', description: 'Managing emotions and learning from mistakes', duration: '15 min' },
+      { name: 'SMB Capital', url: 'https://www.youtube.com/watch?v=GQBaoLMJ0wM', description: 'Professional traders share mindset strategies', duration: '18 min' },
+      { name: 'Chat With Traders', url: 'https://www.youtube.com/watch?v=1UhA0dSMrEc', description: 'Expert interviews on trading discipline', duration: '20 min' },
+      { name: 'Investors Underground', url: 'https://www.youtube.com/watch?v=r3FHd2xqJwY', description: 'Building the right habits from day one', duration: '16 min' },
     ]
   },
 ];
