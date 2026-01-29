@@ -251,7 +251,7 @@ export function StartHereView({ onNavigateToTab }: StartHereViewProps) {
               </div>
             </div>
             <button
-              onClick={() => onNavigateToTab('investment')}
+              onClick={() => onNavigateToTab('investments')}
               className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition flex items-center gap-2"
             >
               <PiggyBank className="w-5 h-5" />
