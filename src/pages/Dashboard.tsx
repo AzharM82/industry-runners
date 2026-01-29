@@ -13,7 +13,7 @@ import { TradeManagementView } from '../components/TradeManagementView';
 import { InvestmentTrackerView } from '../components/InvestmentTrackerView';
 import { SectorRotationView } from '../components/SectorRotationView';
 import { PromptRunner } from '../components/PromptRunner';
-import { UsageGuide } from '../components/UsageGuide';
+import { StartHereView } from '../components/StartHereView';
 import { useAuth, logout } from '../hooks';
 
 interface SubscriptionStatus {
@@ -99,17 +99,16 @@ function getAllSymbols(): string[] {
   return Array.from(symbols);
 }
 
-type DashboardType = 'ai-analysis' | 'analysis' | 'focus' | 'breadth' | 'sector-rotation' | 'swing' | 'daytrade' | 'trade-management' | 'investments';
+type DashboardType = 'start-here' | 'ai-analysis' | 'analysis' | 'focus' | 'breadth' | 'sector-rotation' | 'swing' | 'daytrade' | 'trade-management' | 'investments';
 
 export function Dashboard() {
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
-  const [activeTab, setActiveTab] = useState<DashboardType>('ai-analysis');
+  const [activeTab, setActiveTab] = useState<DashboardType>('start-here');
   const [quotes, setQuotes] = useState<Record<string, StockQuote>>({});
   const [indices, setIndices] = useState<MarketIndex[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [selectedStock, setSelectedStock] = useState<string | null>(null);
-  const [showUsageGuide, setShowUsageGuide] = useState(false);
   const [selectedStockDetails, setSelectedStockDetails] = useState<StockQuote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [marketOpen, setMarketOpen] = useState(isMarketOpen());
@@ -504,12 +503,6 @@ export function Dashboard() {
                 Feedback
               </a>
               <button
-                onClick={() => setShowUsageGuide(true)}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
-              >
-                Usage Guide
-              </button>
-              <button
                 onClick={logout}
                 className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
               >
@@ -520,6 +513,16 @@ export function Dashboard() {
 
           {/* Dashboard Tabs */}
           <div className="flex gap-1 mt-3 overflow-x-auto">
+            <button
+              onClick={() => setActiveTab('start-here')}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
+                activeTab === 'start-here'
+                  ? 'bg-emerald-600 text-white border-t border-l border-r border-emerald-500'
+                  : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800/50'
+              }`}
+            >
+              Start Here
+            </button>
             <button
               onClick={() => setActiveTab('ai-analysis')}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
@@ -631,7 +634,10 @@ export function Dashboard() {
           </div>
         )}
 
-        {activeTab === 'ai-analysis' ? (
+        {activeTab === 'start-here' ? (
+          // Start Here - Welcome & Guide
+          <StartHereView onNavigateToTab={(tab) => setActiveTab(tab as DashboardType)} />
+        ) : activeTab === 'ai-analysis' ? (
           // AI Analysis Dashboard
           <PromptRunner />
         ) : activeTab === 'analysis' ? (
@@ -704,9 +710,6 @@ export function Dashboard() {
           }}
         />
       )}
-
-      {/* Usage Guide Modal */}
-      <UsageGuide isOpen={showUsageGuide} onClose={() => setShowUsageGuide(false)} />
 
       {/* Footer */}
       <footer className="border-t border-gray-800 py-4 mt-8">
