@@ -337,18 +337,7 @@ export function InvestmentTrackerView() {
     setBuyForm({ shares: '', pricePerShare: '', date: new Date().toISOString().split('T')[0] });
   };
 
-  const handleUpdatePrice = (stockId: number) => {
-    const stock = stocks.find(s => s.id === stockId);
-    if (!stock) return;
-
-    const price = prompt(`Enter current price for ${stock.ticker}:`, String(stock.currentPrice));
-    if (price) {
-      setStocks(stocks.map(s =>
-        s.id === stockId ? { ...s, currentPrice: parseFloat(price) } : s
-      ));
-    }
-  };
-
+  
   const handleDeleteStock = (stockId: number) => {
     if (confirm('Are you sure you want to delete this stock and all its buys?')) {
       setStocks(stocks.filter(s => s.id !== stockId));
@@ -450,13 +439,7 @@ export function InvestmentTrackerView() {
     }
   }, [stocks]);
 
-  // Auto-refresh prices when execution tab is active and stocks are loaded
-  useEffect(() => {
-    if (activeTab === 'execution' && stocks.length > 0 && dataLoaded && !lastPriceUpdate) {
-      refreshAllPrices();
-    }
-  }, [activeTab, stocks.length, dataLoaded, lastPriceUpdate, refreshAllPrices]);
-
+  
   // Show loading state
   if (isLoading) {
     return (
@@ -849,15 +832,9 @@ export function InvestmentTrackerView() {
                     <div className="col-span-1 text-right font-medium text-white flex items-center justify-end">{details.totalShares.toFixed(2)}</div>
                     <div className="col-span-1 text-right text-gray-300 flex items-center justify-end">${details.avgPrice.toFixed(2)}</div>
                     <div className="col-span-1 text-right flex items-center justify-end">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); isAdmin && handleUpdatePrice(stock.id); }}
-                        className={`font-medium ${isAdmin ? 'text-blue-400 hover:text-blue-300' : 'text-gray-300 cursor-not-allowed'}`}
-                        title={isAdmin ? "Click to update" : "Admin only"}
-                        disabled={!isAdmin}
-                      >
+                      <span className="font-medium text-blue-400">
                         ${stock.currentPrice.toFixed(2)}
-                        <RefreshCw className={`w-3 h-3 inline ml-1 ${isAdmin ? '' : 'opacity-30'}`} />
-                      </button>
+                      </span>
                     </div>
                     <div className="col-span-1 text-right text-gray-300 flex items-center justify-end">{formatCurrency(details.totalInvested)}</div>
                     <div className="col-span-1 text-right font-medium text-white flex items-center justify-end">{formatCurrency(details.currentValue)}</div>
