@@ -28,58 +28,37 @@ const videoCategories: VideoCategory[] = [
     id: 'getting-started',
     title: '1. Getting Started in the Stock Market',
     channels: [
-      { name: 'Charles Schwab', url: 'https://www.youtube.com/watch?v=TYI_cvSygAE', description: 'Clear explanation of what stocks are, risks, and how they work', duration: '5 min' },
-      { name: 'Mark Tilbury', url: 'https://www.youtube.com/watch?v=oLMKPWXuhvM', description: 'Self-made millionaire explains stock picking strategies', duration: '15 min' },
-      { name: 'WhiteBoard Finance', url: 'https://www.youtube.com/watch?v=2xVnU99_c98', description: 'Comprehensive beginner course with live examples', duration: '45 min' },
-      { name: 'The Plain Bagel', url: 'https://www.youtube.com/watch?v=uiNAhLb6oTE', description: 'CFA-led unbiased education on investing fundamentals', duration: '12 min' },
-      { name: 'Andrei Jikh', url: 'https://www.youtube.com/watch?v=EQPmcE9Z9SI', description: 'Step-by-step value investing guide for beginners', duration: '13 min' },
+      { name: 'Ali Abdaal', url: 'https://www.youtube.com/watch?v=2NKmCQ-XfNc', description: 'Complete breakdown of investing basics, financial terms, and risk management', duration: '' },
+      { name: 'Ali Abdaal', url: 'https://www.youtube.com/watch?v=RouNXdkC0do', description: 'Updated 2024 version covering index funds and long-term investing', duration: '' },
+      { name: 'WhiteBoard Finance', url: 'https://www.youtube.com/watch?v=bJHr6_skXWc', description: 'Comprehensive 1-hour course on investing fundamentals by Marko', duration: '' },
+      { name: 'WhiteBoard Finance', url: 'https://www.youtube.com/watch?v=RouNXdkC0do', description: 'Updated beginner guide with live trading examples', duration: '' },
+      { name: 'Mark Tilbury', url: 'https://www.youtube.com/watch?v=lNdOtlpmH5U', description: 'Self-made millionaire explains fundamental vs technical analysis', duration: '' },
     ]
   },
   {
     id: 'fundamentals',
     title: '2. Stock Fundamentals',
     channels: [
-      { name: 'The Plain Bagel', url: 'https://www.youtube.com/watch?v=bJHr6_skXWc', description: 'Understanding company financials and valuation', duration: '18 min' },
-      { name: 'Zerodha Varsity', url: 'https://www.youtube.com/watch?v=3y5RCqL6gXo', description: 'Complete fundamental analysis course playlist', duration: 'Series' },
-      { name: 'Pranjal Kamra', url: 'https://www.youtube.com/watch?v=fqhYBTg73fw', description: 'Practical stock analysis for Indian market beginners', duration: '20 min' },
-      { name: 'New Money', url: 'https://www.youtube.com/watch?v=VBl0bYfgUJk', description: 'Breaking down balance sheets and income statements', duration: '14 min' },
-      { name: 'Learn to Invest', url: 'https://www.youtube.com/watch?v=2wR7LpqK_Ug', description: 'Ex-equity research analyst teaches stock analysis', duration: '22 min' },
+      { name: 'TED-Ed', url: 'https://www.youtube.com/watch?v=Tt_3e482Pn0', description: 'Animated explainer on stock market fundamentals', duration: '' },
+      { name: 'The Plain Bagel', url: 'https://www.youtube.com/watch?v=gFQNPmLKj1k', description: 'CFA explains key differences between short-term trading and long-term investing', duration: '' },
+      { name: 'The Plain Bagel', url: 'https://www.youtube.com/watch?v=WEDIj9JBTC8', description: 'Understanding PE ratios and valuation metrics', duration: '' },
+      { name: 'Khan Academy', url: 'https://www.youtube.com/watch?v=p7HKvqRI_Bo', description: 'Simple explanation of earnings and earnings per share', duration: '' },
     ]
   },
   {
     id: 'technical-analysis',
     title: '3. Technical Analysis',
-    subtitle: 'Reading Charts & Patterns',
+    subtitle: 'Reading Charts & Price Action',
     channels: [
-      { name: 'TD Ameritrade (Schwab)', url: 'https://www.youtube.com/watch?v=4KGvoy_Ke9Y', description: 'Introduction to chart reading and technical indicators', duration: '8 min' },
-      { name: 'ClayTrader', url: 'https://www.youtube.com/watch?v=yaHEIFvHh5g', description: 'Day trading educator explains charts and patterns', duration: '25 min' },
-      { name: 'Rayner Teo', url: 'https://www.youtube.com/watch?v=tmryHfunyQ4', description: 'Complete free technical analysis course', duration: '1 hr' },
-      { name: 'The Trading Channel', url: 'https://www.youtube.com/watch?v=bwZPGDsKFZU', description: 'Understanding common chart patterns', duration: '20 min' },
-      { name: 'Trading 212', url: 'https://www.youtube.com/watch?v=2NKmCQ-XfNc', description: 'Beginner-friendly intro to reading charts', duration: '15 min' },
+      { name: 'Rayner Teo', url: 'https://www.youtube.com/watch?v=tmryHfunyQ4', description: 'Price action trading explained for bull and bear markets', duration: '' },
     ]
   },
   {
-    id: 'orders',
-    title: '4. Placing Stock Orders',
-    subtitle: 'Market, Limit & Stop Orders',
+    id: 'wisdom',
+    title: '4. Investing Wisdom',
+    subtitle: 'Learn from the Best',
     channels: [
-      { name: 'TD Ameritrade (Schwab)', url: 'https://www.youtube.com/watch?v=XtQetkDe1eE', description: 'Step-by-step guide to placing your first trade', duration: '6 min' },
-      { name: 'Charles Schwab', url: 'https://www.youtube.com/watch?v=08R_TJhAOGo', description: 'Market, limit, and stop orders explained', duration: '5 min' },
-      { name: 'Fidelity', url: 'https://www.youtube.com/watch?v=CYJC-5MTZWY', description: 'When to use different order types', duration: '7 min' },
-      { name: 'Warrior Trading', url: 'https://www.youtube.com/watch?v=b8qyfYAu2v8', description: 'Advanced order types for active traders', duration: '12 min' },
-      { name: 'WhiteBoard Finance', url: 'https://www.youtube.com/watch?v=GRlMwST3y5s', description: 'Complete course including order placement', duration: '35 min' },
-    ]
-  },
-  {
-    id: 'tracking',
-    title: '5. Trading Journal & Psychology',
-    subtitle: 'Track Performance & Manage Emotions',
-    channels: [
-      { name: 'TraderSync', url: 'https://www.youtube.com/watch?v=qphdPy6hKfM', description: 'Importance of tracking and reviewing trades', duration: '10 min' },
-      { name: 'Timothy Sykes', url: 'https://www.youtube.com/watch?v=4KGvoy_Ke9Y', description: 'Managing emotions and learning from mistakes', duration: '15 min' },
-      { name: 'SMB Capital', url: 'https://www.youtube.com/watch?v=GQBaoLMJ0wM', description: 'Professional traders share mindset strategies', duration: '18 min' },
-      { name: 'Chat With Traders', url: 'https://www.youtube.com/watch?v=1UhA0dSMrEc', description: 'Expert interviews on trading discipline', duration: '20 min' },
-      { name: 'Investors Underground', url: 'https://www.youtube.com/watch?v=r3FHd2xqJwY', description: 'Building the right habits from day one', duration: '16 min' },
+      { name: 'Investor Center', url: 'https://www.youtube.com/watch?v=RG4qEMp2XcU', description: "Warren Buffett's Most Iconic Lecture - Classic Q&A with timeless investing wisdom", duration: '' },
     ]
   },
 ];
@@ -321,10 +300,12 @@ export function StartHereView({ onNavigateToTab }: StartHereViewProps) {
                           </div>
                           <p className="text-sm text-gray-400 mt-1">{channel.description}</p>
                         </div>
+                        {channel.duration && (
                         <div className="flex items-center gap-1 text-xs text-gray-500 flex-shrink-0">
                           <Clock className="w-3 h-3" />
                           {channel.duration}
                         </div>
+                        )}
                       </a>
                     ))}
                   </div>
