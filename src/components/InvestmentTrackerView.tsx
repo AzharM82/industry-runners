@@ -116,6 +116,8 @@ export function InvestmentTrackerView() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [isRefreshingPrices, setIsRefreshingPrices] = useState(false);
+  const [lastPriceUpdate, setLastPriceUpdate] = useState<string | null>(null);
 
   const allMonths = useMemo(() => generateMonths(settings.startDate, settings.endDate), [settings.startDate, settings.endDate]);
   const allQuarters = useMemo(() => generateQuarters(settings.startDate, settings.endDate), [settings.startDate, settings.endDate]);
@@ -416,6 +418,45 @@ export function InvestmentTrackerView() {
     return unfilled[0] || stockMonths.find(m => !filledMonths.includes(m)) || null;
   }, [allMonths, currentMonth]);
 
+  // Refresh all stock prices from live API
+  const refreshAllPrices = useCallback(async () => {
+    if (stocks.length === 0) return;
+
+    setIsRefreshingPrices(true);
+    try {
+      const tickers = stocks.map(s => s.ticker).join(',');
+      const response = await fetch(`${API_BASE}/quotes?symbols=${tickers}&refresh=true`);
+
+      if (response.ok) {
+        const data = await response.json();
+        const quotes = data.quotes || {};
+
+        setStocks(prevStocks => prevStocks.map(stock => {
+          const quote = quotes[stock.ticker];
+          if (quote && quote.last > 0) {
+            return { ...stock, currentPrice: quote.last };
+          }
+          return stock;
+        }));
+
+        setLastPriceUpdate(new Date().toLocaleTimeString());
+      } else {
+        console.error('Failed to fetch quotes:', response.statusText);
+      }
+    } catch (error) {
+      console.error('Error refreshing prices:', error);
+    } finally {
+      setIsRefreshingPrices(false);
+    }
+  }, [stocks]);
+
+  // Auto-refresh prices when execution tab is active and stocks are loaded
+  useEffect(() => {
+    if (activeTab === 'execution' && stocks.length > 0 && dataLoaded && !lastPriceUpdate) {
+      refreshAllPrices();
+    }
+  }, [activeTab, stocks.length, dataLoaded, lastPriceUpdate, refreshAllPrices]);
+
   // Show loading state
   if (isLoading) {
     return (
@@ -680,10 +721,15 @@ export function InvestmentTrackerView() {
       {activeTab === 'execution' && (
         <>
       {/* Portfolio Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl p-5 text-white col-span-2">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm opacity-90">Portfolio Value</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm opacity-90">Portfolio Value</span>
+              {lastPriceUpdate && (
+                <span className="text-xs bg-green-500/30 text-green-200 px-1.5 py-0.5 rounded">LIVE</span>
+              )}
+            </div>
             <DollarSign className="w-5 h-5 opacity-80" />
           </div>
           <div className="text-3xl font-bold mb-2">{formatCurrency(portfolioMetrics.totalCurrentValue)}</div>
@@ -716,6 +762,23 @@ export function InvestmentTrackerView() {
           <div className="text-2xl font-bold text-white">{formatCurrency(settings.monthlyInvestment)}</div>
           <div className="text-sm text-gray-400 mt-1">
             per stock
+          </div>
+        </div>
+
+        <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-gray-400">Live Prices</span>
+            <RefreshCw className={`w-5 h-5 text-gray-500 ${isRefreshingPrices ? 'animate-spin' : ''}`} />
+          </div>
+          <button
+            onClick={refreshAllPrices}
+            disabled={isRefreshingPrices || stocks.length === 0}
+            className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition text-sm font-medium"
+          >
+            {isRefreshingPrices ? 'Refreshing...' : 'Refresh Prices'}
+          </button>
+          <div className="text-xs text-gray-500 mt-2 text-center">
+            {lastPriceUpdate ? `Updated ${lastPriceUpdate}` : 'Not updated yet'}
           </div>
         </div>
       </div>
