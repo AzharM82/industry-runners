@@ -49,6 +49,14 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/admin/health",
+      "allowedRoles": ["authenticated"]
+    },
+    {
+      "route": "/api/health-check",
+      "allowedRoles": ["authenticated"]
+    },
+    {
       "route": "/api/create-checkout-session",
       "allowedRoles": ["authenticated"]
     },

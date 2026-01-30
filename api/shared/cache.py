@@ -210,3 +210,56 @@ def should_save_daily_snapshot(key_prefix: str) -> bool:
     except Exception as e:
         logging.error(f"Redis check error: {e}")
         return False
+
+
+# Error tracking for health check
+ERROR_LOG_KEY = "api:errors"
+ERROR_LOG_TTL = 24 * 60 * 60  # 24 hours
+MAX_ERRORS = 50  # Keep last 50 errors
+
+
+def log_api_error(endpoint: str, error: str, details: str = None) -> bool:
+    """
+    Log an API error to Redis for health check tracking.
+    Stores the last MAX_ERRORS errors with 24hr TTL.
+    """
+    client = get_redis_client()
+    if not client:
+        return False
+
+    try:
+        error_entry = json.dumps({
+            'endpoint': endpoint,
+            'error': error,
+            'details': details,
+            'timestamp': now_pst().isoformat()
+        })
+
+        # Push to the list and trim to keep only MAX_ERRORS
+        client.lpush(ERROR_LOG_KEY, error_entry)
+        client.ltrim(ERROR_LOG_KEY, 0, MAX_ERRORS - 1)
+        client.expire(ERROR_LOG_KEY, ERROR_LOG_TTL)
+
+        logging.info(f"Logged API error for {endpoint}: {error}")
+        return True
+
+    except Exception as e:
+        logging.error(f"Failed to log API error: {e}")
+        return False
+
+
+def get_recent_errors(count: int = 10) -> List[Dict[str, Any]]:
+    """
+    Get the most recent API errors from Redis.
+    Returns list of error objects, newest first.
+    """
+    client = get_redis_client()
+    if not client:
+        return []
+
+    try:
+        errors_raw = client.lrange(ERROR_LOG_KEY, 0, count - 1)
+        return [json.loads(e) for e in errors_raw]
+    except Exception as e:
+        logging.error(f"Failed to get recent errors: {e}")
+        return []

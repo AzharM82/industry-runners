@@ -11,7 +11,8 @@ import {
   Brain,
   ChevronLeft,
   ChevronRight,
-  Server
+  Server,
+  HeartPulse
 } from 'lucide-react';
 
 interface DailyReport {
@@ -194,6 +195,13 @@ export function AdminDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate('/admin/health')}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-gray-300 rounded-lg hover:bg-gray-700 transition"
+            >
+              <HeartPulse className="w-4 h-4" />
+              Health
+            </button>
             <button
               onClick={() => navigate('/admin/system')}
               className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-gray-300 rounded-lg hover:bg-gray-700 transition"
