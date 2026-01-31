@@ -602,9 +602,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         set_cached(CACHE_KEY, response, CACHE_TTL_REALTIME)
         logging.info("Cached breadth data")
 
-        # Save daily snapshot (once per day)
-        if should_save_daily_snapshot('breadth:realtime'):
+        # Check for force_snapshot parameter (admin use to fix bad snapshots)
+        force_snapshot = req.params.get('force_snapshot', '').lower() == 'true'
+
+        # Save daily snapshot (once per day, or force if requested)
+        if force_snapshot or should_save_daily_snapshot('breadth:realtime'):
             save_daily_snapshot('breadth:realtime', response)
+            if force_snapshot:
+                logging.info("Force-saved daily snapshot (overwriting existing)")
 
         return func.HttpResponse(
             json.dumps(response),
