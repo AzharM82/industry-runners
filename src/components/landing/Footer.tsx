@@ -29,10 +29,24 @@ export function Footer() {
           </p>
         </div>
 
-        <p className="text-center text-xs text-gray-400 mt-8 max-w-2xl mx-auto">
-          StockPro AI provides AI-generated analysis for informational purposes only.
-          This is not financial advice. Always conduct your own research before making investment decisions.
-        </p>
+        {/* Legal Disclaimer */}
+        <div className="mt-8 pt-6 border-t border-gray-100">
+          <p className="text-center text-xs text-gray-500 font-medium mb-2">
+            Important Disclaimer
+          </p>
+          <p className="text-center text-xs text-gray-400 max-w-4xl mx-auto leading-relaxed">
+            StockPro AI is an educational and informational tool only. The content provided, including AI-generated
+            analysis, market indicators, and trading signals, does <strong>not</strong> constitute financial advice,
+            investment advice, tax advice, or legal advice. The creators and operators of StockPro AI are not
+            registered investment advisors, certified financial planners, licensed brokers, or CPAs.
+          </p>
+          <p className="text-center text-xs text-gray-400 max-w-4xl mx-auto leading-relaxed mt-3">
+            All investments involve risk, including potential loss of principal. Past performance does not guarantee
+            future results. You should consult with a qualified financial professional before making any investment
+            decisions. By using this service, you acknowledge that you are solely responsible for your own investment
+            decisions and assume all associated risks.
+          </p>
+        </div>
       </div>
     </footer>
   );

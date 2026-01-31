@@ -713,8 +713,15 @@ export function Dashboard() {
 
       {/* Footer */}
       <footer className="border-t border-gray-800 py-4 mt-8">
-        <div className="max-w-[2400px] mx-auto px-4 text-center text-xs text-gray-600">
-          Data provided by Polygon.io. Auto-refreshes every 5 minutes during market hours.
+        <div className="max-w-[2400px] mx-auto px-4 text-center space-y-2">
+          <div className="text-xs text-gray-600">
+            Data provided by Polygon.io. Auto-refreshes every 5 minutes during market hours.
+          </div>
+          <div className="text-xs text-gray-600 max-w-4xl mx-auto">
+            <span className="text-gray-500">Disclaimer:</span> For educational and informational purposes only.
+            Not financial advice. We are not registered investment advisors or CPAs.
+            All investments involve risk. Consult a qualified professional before investing.
+          </div>
         </div>
       </footer>
     </div>
