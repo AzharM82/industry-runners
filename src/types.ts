@@ -163,6 +163,8 @@ export interface FocusStock {
   change: number;
   changePercent: number;
   previousClose: number;
+  change1Week: number | null;
+  change1Month: number | null;
 }
 
 // Breadth Indicators Types

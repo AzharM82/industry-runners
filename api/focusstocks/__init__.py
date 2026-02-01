@@ -2,7 +2,7 @@ import json
 import os
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 import azure.functions as func
 import urllib.request
 import ssl
@@ -10,10 +10,11 @@ import ssl
 # Import shared cache module
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.cache import get_cached, set_cached
+from shared.timezone import now_pst
 
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
 POLYGON_BASE_URL = 'https://api.polygon.io'
-CACHE_TTL_FOCUSSTOCKS = 2 * 60  # 2 minutes for real-time focus stocks
+CACHE_TTL_FOCUSSTOCKS = 5 * 60  # 5 minutes for focus stocks (increased due to historical data)
 
 def polygon_request(endpoint: str) -> dict:
     """Make a request to Polygon API"""
@@ -31,6 +32,46 @@ def polygon_request(endpoint: str) -> dict:
     except Exception as e:
         logging.error(f"Polygon API error for {endpoint}: {e}")
         return {'_error': str(e)}
+
+
+def get_trading_date_n_days_ago(n_days: int) -> str:
+    """Get an approximate trading date n calendar days ago."""
+    target_date = now_pst() - timedelta(days=n_days)
+    return target_date.strftime('%Y-%m-%d')
+
+
+def get_grouped_daily_close(date: str) -> dict:
+    """
+    Get closing prices for all stocks on a specific date using grouped daily endpoint.
+    Returns dict of symbol -> close price
+    """
+    data = polygon_request(f"/v2/aggs/grouped/locale/us/market/stocks/{date}?adjusted=true")
+
+    results = {}
+    if '_error' not in data:
+        for result in data.get('results', []):
+            symbol = result.get('T', '')
+            close = result.get('c', 0)
+            if symbol and close > 0:
+                results[symbol] = close
+
+    return results
+
+
+def get_historical_closes(days_ago: int) -> dict:
+    """
+    Get historical closing prices from approximately N days ago.
+    Tries multiple dates to handle weekends/holidays.
+    """
+    # Try a few dates in case of weekends/holidays
+    for offset in range(5):
+        check_date = get_trading_date_n_days_ago(days_ago + offset)
+        prices = get_grouped_daily_close(check_date)
+        if prices:
+            logging.info(f"Got {len(prices)} prices for {check_date} ({days_ago}+ days ago)")
+            return prices
+
+    return {}
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     """Get focus stocks data with relative volume for bubble chart."""
@@ -74,6 +115,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Fetch snapshot data for all symbols (single API call)
         snapshot_data = polygon_request(f"/v2/snapshot/locale/us/markets/stocks/tickers?tickers={','.join(symbols)}")
 
+        # Fetch historical data for 1-week and 1-month changes
+        logging.info("Fetching historical data for 1-week and 1-month changes...")
+        hist_5d = get_historical_closes(7)   # ~1 week (7 calendar days)
+        hist_21d = get_historical_closes(30)  # ~1 month (30 calendar days)
+
         if '_error' in snapshot_data:
             return func.HttpResponse(
                 json.dumps({'error': f"Polygon API error: {snapshot_data['_error']}"}),
@@ -109,6 +155,18 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 if prev_volume > 0 and current_volume > 0:
                     relative_volume = round(current_volume / prev_volume, 2)
 
+                # Calculate 1-week change
+                change_1week = None
+                price_5d = hist_5d.get(symbol, 0)
+                if price_5d > 0:
+                    change_1week = round(((current_price - price_5d) / price_5d) * 100, 2)
+
+                # Calculate 1-month change
+                change_1month = None
+                price_21d = hist_21d.get(symbol, 0)
+                if price_21d > 0:
+                    change_1month = round(((current_price - price_21d) / price_21d) * 100, 2)
+
                 stocks.append({
                     'symbol': symbol,
                     'last': round(current_price, 2),
@@ -123,6 +181,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     'change': round(ticker_data.get('todaysChange', 0), 2),
                     'changePercent': round(ticker_data.get('todaysChangePerc', 0), 2),
                     'previousClose': round(prev_day.get('c', 0), 2),
+                    'change1Week': change_1week,
+                    'change1Month': change_1month,
                 })
             except Exception as e:
                 logging.error(f"Error processing {ticker_data.get('ticker', 'unknown')}: {e}")
