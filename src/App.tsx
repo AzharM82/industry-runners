@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { LandingPage, Dashboard, AdminDashboard, AdminSystemInfo, AdminHealthCheck } from './pages';
+import { LandingPage, Dashboard, AdminDashboard, AdminSystemInfo, AdminHealthCheck, AdminWatchlist } from './pages';
 import { useAuth, login } from './hooks';
 
 function App() {
@@ -72,6 +72,12 @@ function App() {
         <Route
           path="/admin/health"
           element={<AdminHealthCheck />}
+        />
+
+        {/* Admin Watchlist (protected - checks admin status internally) */}
+        <Route
+          path="/admin/watchlist"
+          element={<AdminWatchlist />}
         />
 
         {/* Catch-all redirect */}

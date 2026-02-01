@@ -53,6 +53,10 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/admin/watchlist",
+      "allowedRoles": ["authenticated"]
+    },
+    {
       "route": "/api/health-check",
       "allowedRoles": ["authenticated"]
     },
