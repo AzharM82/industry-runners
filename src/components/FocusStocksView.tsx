@@ -11,8 +11,12 @@ import {
   Cell,
   ReferenceLine,
 } from 'recharts';
+import { ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react';
 import type { FocusStock } from '../types';
 import { getFocusStockSymbols } from '../data/focusstocks';
+
+type SortField = 'symbol' | 'last' | 'changePercent' | 'changeFromOpenPercent' | 'volume' | 'relativeVolume';
+type SortDirection = 'asc' | 'desc';
 
 const API_BASE = '/api';
 
@@ -28,6 +32,8 @@ export function FocusStocksView() {
   const [stocks, setStocks] = useState<FocusStock[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sortField, setSortField] = useState<SortField>('changePercent');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   const fetchFocusStocks = useCallback(async () => {
     try {
@@ -105,6 +111,67 @@ export function FocusStocksView() {
     if (changePercent > 0) return '#4ade80'; // Light green
     if (changePercent > -2) return '#f87171'; // Light red
     return '#ef4444'; // Strong red
+  };
+
+  // Sorted stocks for table
+  const sortedStocks = useMemo(() => {
+    const sorted = [...stocks].sort((a, b) => {
+      let aVal: number | string = 0;
+      let bVal: number | string = 0;
+
+      switch (sortField) {
+        case 'symbol':
+          aVal = a.symbol;
+          bVal = b.symbol;
+          break;
+        case 'last':
+          aVal = a.last;
+          bVal = b.last;
+          break;
+        case 'changePercent':
+          aVal = a.changePercent;
+          bVal = b.changePercent;
+          break;
+        case 'changeFromOpenPercent':
+          aVal = a.changeFromOpenPercent;
+          bVal = b.changeFromOpenPercent;
+          break;
+        case 'volume':
+          aVal = a.volume;
+          bVal = b.volume;
+          break;
+        case 'relativeVolume':
+          aVal = a.relativeVolume;
+          bVal = b.relativeVolume;
+          break;
+      }
+
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        return sortDirection === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+
+      return sortDirection === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
+    });
+
+    return sorted;
+  }, [stocks, sortField, sortDirection]);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  };
+
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-3 h-3 text-gray-500" />;
+    }
+    return sortDirection === 'asc'
+      ? <ChevronUp className="w-3 h-3 text-blue-400" />
+      : <ChevronDown className="w-3 h-3 text-blue-400" />;
   };
 
   // Custom tooltip component
@@ -316,6 +383,109 @@ export function FocusStocksView() {
           value={bubbleData.filter(d => Math.abs(d.y) > 2).length}
           total={bubbleData.length}
         />
+      </div>
+
+      {/* Stocks Table */}
+      <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
+        <div className="p-4 border-b border-gray-700">
+          <h3 className="text-lg font-semibold text-white">All Focus Stocks</h3>
+          <p className="text-sm text-gray-400">Click column headers to sort</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-900/50">
+              <tr>
+                <th
+                  className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50"
+                  onClick={() => handleSort('symbol')}
+                >
+                  <div className="flex items-center gap-1">
+                    Symbol
+                    <SortIcon field="symbol" />
+                  </div>
+                </th>
+                <th
+                  className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50"
+                  onClick={() => handleSort('last')}
+                >
+                  <div className="flex items-center justify-end gap-1">
+                    Price
+                    <SortIcon field="last" />
+                  </div>
+                </th>
+                <th
+                  className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50"
+                  onClick={() => handleSort('changePercent')}
+                >
+                  <div className="flex items-center justify-end gap-1">
+                    1-Day Change
+                    <SortIcon field="changePercent" />
+                  </div>
+                </th>
+                <th
+                  className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50"
+                  onClick={() => handleSort('changeFromOpenPercent')}
+                >
+                  <div className="flex items-center justify-end gap-1">
+                    From Open
+                    <SortIcon field="changeFromOpenPercent" />
+                  </div>
+                </th>
+                <th
+                  className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50"
+                  onClick={() => handleSort('volume')}
+                >
+                  <div className="flex items-center justify-end gap-1">
+                    Volume
+                    <SortIcon field="volume" />
+                  </div>
+                </th>
+                <th
+                  className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50"
+                  onClick={() => handleSort('relativeVolume')}
+                >
+                  <div className="flex items-center justify-end gap-1">
+                    RVOL
+                    <SortIcon field="relativeVolume" />
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-700">
+              {sortedStocks.map((stock) => {
+                const isPositive = stock.changePercent >= 0;
+                const isFromOpenPositive = stock.changeFromOpenPercent >= 0;
+                const highRvol = stock.relativeVolume > 1.5;
+
+                return (
+                  <tr key={stock.symbol} className="hover:bg-gray-700/30">
+                    <td className="px-4 py-3">
+                      <span className="font-medium text-white">{stock.symbol}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-white">
+                      ${stock.last.toFixed(2)}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-medium ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+                      {isPositive ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                    </td>
+                    <td className={`px-4 py-3 text-right ${isFromOpenPositive ? 'text-green-400' : 'text-red-400'}`}>
+                      {isFromOpenPositive ? '+' : ''}{stock.changeFromOpenPercent.toFixed(2)}%
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-300">
+                      {formatVolume(stock.volume)}
+                    </td>
+                    <td className={`px-4 py-3 text-right ${highRvol ? 'text-yellow-400 font-medium' : 'text-gray-300'}`}>
+                      {stock.relativeVolume.toFixed(2)}x
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="px-4 py-3 bg-gray-900/30 border-t border-gray-700 text-sm text-gray-500">
+          Showing {sortedStocks.length} stocks | RVOL = Relative Volume (vs previous day)
+        </div>
       </div>
     </div>
   );
