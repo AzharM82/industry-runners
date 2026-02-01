@@ -15,7 +15,7 @@ import { ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react';
 import type { FocusStock } from '../types';
 import { getFocusStockSymbols } from '../data/focusstocks';
 
-type SortField = 'symbol' | 'last' | 'changePercent' | 'change1Week' | 'change1Month' | 'volume' | 'relativeVolume';
+type SortField = 'symbol' | 'last' | 'changePercent' | 'changeFromOpenPercent' | 'change1Week' | 'change1Month' | 'volume' | 'relativeVolume';
 type SortDirection = 'asc' | 'desc';
 
 const API_BASE = '/api';
@@ -131,6 +131,10 @@ export function FocusStocksView() {
         case 'changePercent':
           aVal = a.changePercent;
           bVal = b.changePercent;
+          break;
+        case 'changeFromOpenPercent':
+          aVal = a.changeFromOpenPercent;
+          bVal = b.changeFromOpenPercent;
           break;
         case 'change1Week':
           aVal = a.change1Week ?? -9999;
@@ -428,6 +432,15 @@ export function FocusStocksView() {
                 </th>
                 <th
                   className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50"
+                  onClick={() => handleSort('changeFromOpenPercent')}
+                >
+                  <div className="flex items-center justify-end gap-1">
+                    From Open
+                    <SortIcon field="changeFromOpenPercent" />
+                  </div>
+                </th>
+                <th
+                  className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50"
                   onClick={() => handleSort('change1Week')}
                 >
                   <div className="flex items-center justify-end gap-1">
@@ -467,6 +480,7 @@ export function FocusStocksView() {
             <tbody className="divide-y divide-gray-700">
               {sortedStocks.map((stock) => {
                 const isPositive = stock.changePercent >= 0;
+                const isFromOpenPositive = stock.changeFromOpenPercent >= 0;
                 const is1WeekPositive = (stock.change1Week ?? 0) >= 0;
                 const is1MonthPositive = (stock.change1Month ?? 0) >= 0;
                 const highRvol = stock.relativeVolume > 1.5;
@@ -481,6 +495,9 @@ export function FocusStocksView() {
                     </td>
                     <td className={`px-4 py-3 text-right font-medium ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
                       {isPositive ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                    </td>
+                    <td className={`px-4 py-3 text-right ${isFromOpenPositive ? 'text-green-400' : 'text-red-400'}`}>
+                      {isFromOpenPositive ? '+' : ''}{stock.changeFromOpenPercent.toFixed(2)}%
                     </td>
                     <td className={`px-4 py-3 text-right ${stock.change1Week !== null ? (is1WeekPositive ? 'text-green-400' : 'text-red-400') : 'text-gray-500'}`}>
                       {stock.change1Week !== null ? `${is1WeekPositive ? '+' : ''}${stock.change1Week.toFixed(2)}%` : '-'}
