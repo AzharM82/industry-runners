@@ -257,12 +257,21 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                             }),
                             mimetype='application/json'
                         )
+
+                    # Return diagnostic info about the existing subscription
                     return func.HttpResponse(
                         json.dumps({
                             'success': True,
                             'message': 'Subscription already exists in database',
                             'subscription_id': stripe_sub.id,
-                            'status': stripe_sub.status
+                            'status': stripe_sub.status,
+                            'db_record': {
+                                'user_id': str(existing.get('user_id')),
+                                'status': existing.get('status'),
+                                'current_period_end': existing.get('current_period_end').isoformat() if existing.get('current_period_end') else None,
+                                'stripe_period_end': stripe_sub.current_period_end
+                            },
+                            'target_user_id': str(target_user['id'])
                         }),
                         mimetype='application/json'
                     )
