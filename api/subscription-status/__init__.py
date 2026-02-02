@@ -230,62 +230,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 # Update stripe customer ID
                 update_user_stripe_customer(sync_email, customer_id)
 
-                # Check if subscription already exists
-                existing = get_subscription_by_stripe_id(stripe_sub.id)
-                if existing:
-                    # Check if it's linked to the correct user
-                    if str(existing.get('user_id')) != str(target_user['id']):
-                        # Update the subscription to link to correct user
-                        conn = get_connection()
-                        cur = conn.cursor()
-                        cur.execute("""
-                            UPDATE subscriptions
-                            SET user_id = %s, updated_at = NOW()
-                            WHERE stripe_subscription_id = %s
-                        """, (target_user['id'], stripe_sub.id))
-                        conn.commit()
-                        cur.close()
-                        conn.close()
-                        logging.info(f"Updated subscription {stripe_sub.id} to user {target_user['id']}")
-                        return func.HttpResponse(
-                            json.dumps({
-                                'success': True,
-                                'message': 'Subscription updated to correct user',
-                                'subscription_id': stripe_sub.id,
-                                'status': stripe_sub.status,
-                                'user_id': str(target_user['id'])
-                            }),
-                            mimetype='application/json'
-                        )
-
-                    # Return diagnostic info and also fix the period_end if needed
-                    db_period_end = existing.get('current_period_end')
-                    stripe_period_end = stripe_sub.current_period_end
-
-                    # Update the subscription with correct data from Stripe
-                    conn = get_connection()
-                    cur = conn.cursor()
-                    cur.execute("""
-                        UPDATE subscriptions
-                        SET status = %s, current_period_end = to_timestamp(%s), updated_at = NOW()
-                        WHERE stripe_subscription_id = %s
-                    """, (stripe_sub.status, stripe_period_end, stripe_sub.id))
-                    conn.commit()
-                    cur.close()
-                    conn.close()
-
-                    return func.HttpResponse(
-                        json.dumps({
-                            'success': True,
-                            'message': 'Subscription updated with latest Stripe data',
-                            'subscription_id': stripe_sub.id,
-                            'status': stripe_sub.status,
-                            'db_user_id': str(existing.get('user_id')),
-                            'target_user_id': str(target_user['id']),
-                            'stripe_period_end': stripe_period_end
-                        }),
-                        mimetype='application/json'
-                    )
+                # Delete any existing subscription with this stripe_id and recreate
+                conn = get_connection()
+                cur = conn.cursor()
+                cur.execute("DELETE FROM subscriptions WHERE stripe_subscription_id = %s", (stripe_sub.id,))
+                conn.commit()
+                cur.close()
+                conn.close()
 
                 # Create subscription in our database
                 create_subscription(
