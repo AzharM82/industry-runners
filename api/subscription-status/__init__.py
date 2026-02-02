@@ -230,10 +230,16 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 # Update stripe customer ID
                 update_user_stripe_customer(sync_email, customer_id)
 
+                # Get timestamps from Stripe subscription
+                period_start = getattr(stripe_sub, 'current_period_start', None) or int(datetime.now().timestamp())
+                period_end = getattr(stripe_sub, 'current_period_end', None) or int(datetime.now().timestamp()) + (30 * 24 * 60 * 60)
+
                 # Delete any existing subscription with this stripe_id and recreate
                 conn = get_connection()
                 cur = conn.cursor()
                 cur.execute("DELETE FROM subscriptions WHERE stripe_subscription_id = %s", (stripe_sub.id,))
+                # Also delete any other subscriptions for this user to avoid conflicts
+                cur.execute("DELETE FROM subscriptions WHERE user_id = %s", (str(target_user['id']),))
 
                 # Insert new subscription directly with explicit timestamp conversion
                 cur.execute("""
@@ -242,9 +248,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 """, (
                     str(target_user['id']),
                     stripe_sub.id,
-                    stripe_sub.status,
-                    int(stripe_sub.current_period_start),
-                    int(stripe_sub.current_period_end)
+                    str(stripe_sub.status),
+                    int(period_start),
+                    int(period_end)
                 ))
                 conn.commit()
                 cur.close()
