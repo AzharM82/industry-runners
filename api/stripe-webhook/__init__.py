@@ -12,10 +12,12 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.database import (
     get_user_by_email,
+    get_or_create_user,
     update_user_stripe_customer,
     create_subscription,
     update_subscription,
-    get_subscription_by_stripe_id
+    get_subscription_by_stripe_id,
+    init_schema
 )
 
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
@@ -23,6 +25,9 @@ WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
+    # Initialize schema to ensure tables exist
+    init_schema()
+
     payload = req.get_body().decode('utf-8')
     sig_header = req.headers.get('Stripe-Signature')
 
@@ -79,9 +84,25 @@ def handle_checkout_completed(session):
     customer_id = session.get('customer')
     subscription_id = session.get('subscription')
 
-    logging.info(f"Checkout completed for {customer_email}")
+    logging.info(f"Checkout completed for {customer_email}, customer={customer_id}, sub={subscription_id}")
 
-    if customer_email and customer_id:
+    if not customer_email:
+        logging.warning("No customer email in checkout session")
+        return
+
+    # Ensure user exists
+    user = get_user_by_email(customer_email)
+    if not user:
+        logging.info(f"Creating user for {customer_email} from checkout")
+        user = get_or_create_user(
+            email=customer_email,
+            name=customer_email.split('@')[0],
+            auth_provider='stripe',
+            auth_provider_id=customer_id
+        )
+
+    # Update stripe customer ID
+    if customer_id:
         update_user_stripe_customer(customer_email, customer_id)
 
     # Subscription will be created by subscription.created event
@@ -99,14 +120,30 @@ def handle_subscription_created(subscription):
     try:
         customer = stripe.Customer.retrieve(customer_id)
         email = customer.get('email', '').lower()
-    except:
-        logging.error(f"Could not retrieve customer {customer_id}")
+    except Exception as e:
+        logging.error(f"Could not retrieve customer {customer_id}: {e}")
         return
 
+    if not email:
+        logging.error(f"No email found for customer {customer_id}")
+        return
+
+    # Get or create user - ensures user exists even if they haven't logged in yet
     user = get_user_by_email(email)
     if not user:
-        logging.error(f"User not found for email {email}")
-        return
+        logging.info(f"User not found for {email}, creating new user")
+        user = get_or_create_user(
+            email=email,
+            name=email.split('@')[0],
+            auth_provider='stripe',  # Mark as created via Stripe
+            auth_provider_id=customer_id
+        )
+        if not user:
+            logging.error(f"Failed to create user for {email}")
+            return
+
+    # Update stripe customer ID on user
+    update_user_stripe_customer(email, customer_id)
 
     # Check if subscription already exists
     existing = get_subscription_by_stripe_id(subscription_id)
