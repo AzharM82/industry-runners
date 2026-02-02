@@ -83,12 +83,13 @@ def get_daily_report(date: str = None):
 
 
 def get_all_users():
-    """Get all users with stats."""
+    """Get all users with stats, phone numbers, and subscription status."""
     conn = get_connection()
     cur = get_cursor(conn)
 
+    # Get all users with their details
     cur.execute("""
-        SELECT id, email, name, created_at
+        SELECT id, email, name, phone_number, auth_provider, is_new_user, created_at, last_login_at
         FROM users
         ORDER BY created_at DESC
     """)
@@ -102,12 +103,47 @@ def get_all_users():
     """)
     prompt_counts = {str(row['user_id']): row['prompt_count'] for row in cur.fetchall()}
 
-    # Merge counts into users
+    # Get login counts
+    cur.execute("""
+        SELECT user_id, COUNT(*) as login_count
+        FROM user_logins
+        GROUP BY user_id
+    """)
+    login_counts = {str(row['user_id']): row['login_count'] for row in cur.fetchall()}
+
+    # Get subscription status for each user
+    cur.execute("""
+        SELECT user_id, status, stripe_subscription_id, current_period_end
+        FROM subscriptions
+        WHERE (status IN ('active', 'trialing') AND current_period_end > NOW())
+           OR stripe_subscription_id LIKE 'trial_%'
+    """)
+    subscriptions = {}
+    for row in cur.fetchall():
+        user_id = str(row['user_id'])
+        subscriptions[user_id] = {
+            'status': row['status'],
+            'is_trial': row['stripe_subscription_id'].startswith('trial_') if row['stripe_subscription_id'] else False,
+            'expires': row['current_period_end']
+        }
+
+    # Merge data into users
     for user in users:
         user_id = str(user['id'])
         user['prompt_count'] = prompt_counts.get(user_id, 0)
-        user['login_count'] = 0  # Login tracking not yet active
-        user['last_login_at'] = None
+        user['login_count'] = login_counts.get(user_id, 0)
+        user['has_phone'] = bool(user.get('phone_number'))
+
+        # Subscription info
+        sub = subscriptions.get(user_id)
+        if sub:
+            user['subscription_status'] = sub['status']
+            user['is_trial'] = sub['is_trial']
+            user['subscription_expires'] = sub['expires']
+        else:
+            user['subscription_status'] = None
+            user['is_trial'] = False
+            user['subscription_expires'] = None
 
     cur.close()
     conn.close()

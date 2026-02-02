@@ -12,7 +12,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Server,
-  HeartPulse
+  HeartPulse,
+  CreditCard,
+  Clock,
+  Phone
 } from 'lucide-react';
 
 interface DailyReport {
@@ -38,6 +41,12 @@ interface UserStats {
   id: string;
   email: string;
   name: string;
+  phone_number: string | null;
+  has_phone: boolean;
+  auth_provider: string | null;
+  subscription_status: string | null;
+  is_trial: boolean;
+  subscription_expires: string | null;
   created_at: string;
   last_login_at: string | null;
   login_count: number;
@@ -398,7 +407,57 @@ export function AdminDashboard() {
         )}
 
         {activeTab === 'users' && (
-          <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+          <>
+            {/* User Stats Summary */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm text-gray-400">Paid Users</span>
+                  <CreditCard className="w-5 h-5 text-green-400" />
+                </div>
+                <div className="text-3xl font-bold text-green-400">
+                  {users.filter(u => u.subscription_status === 'active').length}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">active subscriptions</div>
+              </div>
+
+              <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm text-gray-400">Trial Users</span>
+                  <Clock className="w-5 h-5 text-blue-400" />
+                </div>
+                <div className="text-3xl font-bold text-blue-400">
+                  {users.filter(u => u.subscription_status === 'trialing').length}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">on 3-day trial</div>
+              </div>
+
+              <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm text-gray-400">No Subscription</span>
+                  <Users className="w-5 h-5 text-red-400" />
+                </div>
+                <div className="text-3xl font-bold text-red-400">
+                  {users.filter(u => !u.subscription_status).length}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">need to subscribe</div>
+              </div>
+
+              <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm text-gray-400">Has Phone</span>
+                  <Phone className="w-5 h-5 text-purple-400" />
+                </div>
+                <div className="text-3xl font-bold text-purple-400">
+                  {users.filter(u => u.has_phone).length}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {users.length > 0 ? `${((users.filter(u => u.has_phone).length / users.length) * 100).toFixed(0)}% of users` : '0%'}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
             <div className="p-4 border-b border-gray-700 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5 text-purple-400" />
@@ -413,20 +472,48 @@ export function AdminDashboard() {
                 <thead className="bg-gray-900/50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Email</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Signups</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Phone</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Status</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Provider</th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Logins</th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Prompts</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Signed Up</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Last Login</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700">
                   {users.map((user) => (
                     <tr key={user.id} className="hover:bg-gray-700/30">
-                      <td className="px-4 py-3 text-white font-medium">{user.email}</td>
-                      <td className="px-4 py-3 text-gray-400">{user.name || '-'}</td>
-                      <td className="px-4 py-3 text-center text-gray-300">
-                        {formatDateTime(user.created_at).split(',')[0]}
+                      <td className="px-4 py-3">
+                        <div className="text-white font-medium">{user.email}</div>
+                        {user.name && <div className="text-xs text-gray-500">{user.name}</div>}
+                      </td>
+                      <td className="px-4 py-3">
+                        {user.phone_number ? (
+                          <span className="text-green-400 text-sm">{user.phone_number}</span>
+                        ) : (
+                          <span className="text-gray-500 text-sm">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {user.subscription_status === 'active' ? (
+                          <span className="px-2 py-1 bg-green-900/30 text-green-400 rounded text-xs font-medium">
+                            PAID
+                          </span>
+                        ) : user.subscription_status === 'trialing' ? (
+                          <span className="px-2 py-1 bg-blue-900/30 text-blue-400 rounded text-xs font-medium">
+                            TRIAL
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 bg-red-900/30 text-red-400 rounded text-xs font-medium">
+                            NONE
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-xs text-gray-400 capitalize">
+                          {user.auth_provider || 'google'}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span className="px-2 py-1 bg-blue-900/30 text-blue-400 rounded text-sm">
@@ -439,6 +526,9 @@ export function AdminDashboard() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-gray-400 text-sm">
+                        {formatDateTime(user.created_at).split(',')[0]}
+                      </td>
+                      <td className="px-4 py-3 text-gray-400 text-sm">
                         {user.last_login_at ? formatDateTime(user.last_login_at) : 'Never'}
                       </td>
                     </tr>
@@ -447,6 +537,7 @@ export function AdminDashboard() {
               </table>
             </div>
           </div>
+          </>
         )}
       </div>
     </div>
