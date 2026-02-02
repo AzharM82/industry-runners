@@ -12,8 +12,11 @@ import azure.functions as func
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from shared.database import get_user_by_email, get_subscription, get_usage_count, init_schema, get_connection, get_cursor, create_trial_subscription, is_user_eligible_for_trial
+from shared.database import get_user_by_email, get_subscription, get_usage_count, init_schema, get_connection, get_cursor, create_trial_subscription, is_user_eligible_for_trial, get_or_create_user, update_user_stripe_customer, create_subscription, get_subscription_by_stripe_id
 from shared.admin import is_admin, MONTHLY_LIMIT
+import stripe
+
+stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
 from shared.timezone import now_pst, today_pst
 
 
@@ -180,6 +183,92 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 users = get_all_users()
                 return func.HttpResponse(
                     json.dumps({'users': users}, default=json_serializer),
+                    mimetype='application/json'
+                )
+
+        # Admin sync subscription feature
+        sync_email = req.params.get('sync', '').lower().strip()
+        if sync_email and is_admin(user_email):
+            try:
+                # Find customer in Stripe
+                customers = stripe.Customer.list(email=sync_email, limit=1)
+                if not customers.data:
+                    return func.HttpResponse(
+                        json.dumps({'error': f'No Stripe customer found for {sync_email}'}),
+                        status_code=404,
+                        mimetype='application/json'
+                    )
+
+                customer = customers.data[0]
+                customer_id = customer.id
+
+                # Find subscriptions for this customer
+                subscriptions = stripe.Subscription.list(customer=customer_id, status='active', limit=1)
+                if not subscriptions.data:
+                    subscriptions = stripe.Subscription.list(customer=customer_id, status='trialing', limit=1)
+
+                if not subscriptions.data:
+                    return func.HttpResponse(
+                        json.dumps({'error': f'No active subscription found for {sync_email}'}),
+                        status_code=404,
+                        mimetype='application/json'
+                    )
+
+                stripe_sub = subscriptions.data[0]
+
+                # Ensure user exists in our database
+                target_user = get_user_by_email(sync_email)
+                if not target_user:
+                    target_user = get_or_create_user(
+                        email=sync_email,
+                        name=sync_email.split('@')[0],
+                        auth_provider='google',
+                        auth_provider_id=None
+                    )
+                    logging.info(f"Created user for {sync_email}")
+
+                # Update stripe customer ID
+                update_user_stripe_customer(sync_email, customer_id)
+
+                # Check if subscription already exists
+                existing = get_subscription_by_stripe_id(stripe_sub.id)
+                if existing:
+                    return func.HttpResponse(
+                        json.dumps({
+                            'success': True,
+                            'message': 'Subscription already exists in database',
+                            'subscription_id': stripe_sub.id,
+                            'status': stripe_sub.status
+                        }),
+                        mimetype='application/json'
+                    )
+
+                # Create subscription in our database
+                create_subscription(
+                    user_id=str(target_user['id']),
+                    stripe_subscription_id=stripe_sub.id,
+                    status=stripe_sub.status,
+                    period_start=stripe_sub.current_period_start,
+                    period_end=stripe_sub.current_period_end
+                )
+
+                logging.info(f"Admin {user_email} synced subscription {stripe_sub.id} for {sync_email}")
+
+                return func.HttpResponse(
+                    json.dumps({
+                        'success': True,
+                        'message': f'Subscription synced for {sync_email}',
+                        'subscription_id': stripe_sub.id,
+                        'status': stripe_sub.status,
+                        'user_id': str(target_user['id'])
+                    }),
+                    mimetype='application/json'
+                )
+            except Exception as e:
+                logging.error(f"Error syncing subscription: {e}")
+                return func.HttpResponse(
+                    json.dumps({'error': str(e)}),
+                    status_code=500,
                     mimetype='application/json'
                 )
 
