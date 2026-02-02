@@ -108,6 +108,10 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/api/admin-user-status",
+      "allowedRoles": ["authenticated"]
+    },
+    {
       "route": "/api/stripe-webhook",
       "allowedRoles": ["anonymous"]
     },
