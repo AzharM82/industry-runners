@@ -7,7 +7,7 @@ Admin configuration for StockPro AI
 # This bypasses payment requirements and gives everyone limited free prompts
 # Set back to False when launching with real subscriptions
 # =============================================================================
-BETA_MODE = True
+BETA_MODE = False
 BETA_PROMPT_LIMIT = 3  # Free prompts per type during beta
 
 # Admin emails that bypass payment requirements

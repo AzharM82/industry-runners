@@ -11,8 +11,7 @@ import azure.functions as func
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from shared.database import get_or_create_user, record_login, init_schema
-from shared.admin import is_beta_mode
+from shared.database import get_or_create_user_with_trial, record_login, init_schema
 
 
 def get_user_from_auth(req):
@@ -44,11 +43,16 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         user_email = auth_user.get('userDetails', '').lower()
         user_name = user_email.split('@')[0]  # Use email prefix as name
 
-        # Get or create user in database
-        user = get_or_create_user(
+        # Detect auth provider from identity provider field
+        # Azure Static Web Apps sets identityProvider to 'google' or 'aad' (Microsoft)
+        identity_provider = auth_user.get('identityProvider', 'google').lower()
+        auth_provider = 'microsoft' if identity_provider == 'aad' else identity_provider
+
+        # Get or create user in database (new users get is_new_user=True for trial eligibility)
+        user = get_or_create_user_with_trial(
             email=user_email,
             name=user_name,
-            auth_provider='google',
+            auth_provider=auth_provider,
             auth_provider_id=auth_user.get('userId', '')
         )
 

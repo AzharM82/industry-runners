@@ -12,8 +12,8 @@ import azure.functions as func
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from shared.database import get_user_by_email, get_subscription, get_usage_count, init_schema, get_connection, get_cursor
-from shared.admin import is_admin, get_monthly_limit, is_beta_mode, BETA_PROMPT_LIMIT
+from shared.database import get_user_by_email, get_subscription, get_usage_count, init_schema, get_connection, get_cursor, create_trial_subscription, is_user_eligible_for_trial
+from shared.admin import is_admin, MONTHLY_LIMIT
 from shared.timezone import now_pst, today_pst
 
 
@@ -149,10 +149,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         # Check if admin
         if is_admin(user_email):
+            admin_user = get_user_by_email(user_email)
             return func.HttpResponse(
                 json.dumps({
                     'has_access': True,
                     'is_admin': True,
+                    'is_new_user': False,
+                    'has_phone': bool(admin_user.get('phone_number')) if admin_user else True,
                     'subscription': None,
                     'usage': {
                         'chartgpt': {'used': 0, 'limit': 999999},
@@ -163,13 +166,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype='application/json'
             )
 
-        # Get or create user in database
-        from shared.database import get_or_create_user
+        # Get user from database
         user = get_user_by_email(user_email)
-
-        # In beta mode, create user if doesn't exist
-        if not user and is_beta_mode():
-            user = get_or_create_user(user_email, user_email.split('@')[0])
 
         if not user:
             return func.HttpResponse(
@@ -177,7 +175,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     'has_access': False,
                     'is_admin': False,
                     'subscription': None,
-                    'reason': 'User not found. Please subscribe.'
+                    'is_new_user': True,
+                    'reason': 'User not found. Please log in first.'
                 }),
                 mimetype='application/json'
             )
@@ -185,15 +184,21 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Get subscription
         subscription = get_subscription(str(user['id']))
 
-        # In beta mode, everyone has access (subscription not required)
-        if is_beta_mode():
-            has_access = True
-        else:
-            has_access = subscription is not None
+        # Check if user is eligible for trial (new user who never had subscription)
+        is_new = user.get('is_new_user', False)
+        trial_eligible = is_user_eligible_for_trial(user_email)
+
+        # Auto-create trial for eligible new users
+        if trial_eligible and not subscription:
+            subscription = create_trial_subscription(str(user['id']), trial_days=3)
+            logging.info(f"Created 3-day trial for new user: {user_email}")
+
+        # Determine access - need active subscription (trial or paid)
+        has_access = subscription is not None
 
         # Get usage for current month (PST timezone)
         month_year = now_pst().strftime('%Y-%m')
-        monthly_limit = get_monthly_limit(user_email)
+        monthly_limit = MONTHLY_LIMIT
 
         usage = {}
         for prompt_type in ['chartgpt', 'deep-research', 'halal']:
@@ -206,22 +211,26 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         response = {
             'has_access': has_access,
             'is_admin': False,
-            'is_beta': is_beta_mode(),
+            'is_new_user': is_new,
+            'has_phone': bool(user.get('phone_number')),
             'subscription': {
                 'status': subscription['status'] if subscription else None,
                 'current_period_end': subscription['current_period_end'].isoformat() if subscription and subscription.get('current_period_end') else None,
-                'cancel_at_period_end': subscription.get('cancel_at_period_end', False) if subscription else False
+                'cancel_at_period_end': subscription.get('cancel_at_period_end', False) if subscription else False,
+                'is_trial': subscription['status'] == 'trialing' if subscription else False
             } if subscription else None,
             'usage': usage
         }
 
-        # Add reason if no access (only when not in beta mode)
-        if not has_access and not is_beta_mode():
-            response['reason'] = 'No active subscription'
+        # Add reason if no access
+        if not has_access:
+            response['reason'] = 'No active subscription. Please subscribe to continue.'
 
-        # Add beta message
-        if is_beta_mode():
-            response['beta_message'] = f'Beta testing mode - {BETA_PROMPT_LIMIT} free prompts per analysis type'
+        # Add trial message if on trial
+        if subscription and subscription.get('status') == 'trialing':
+            trial_end = subscription.get('current_period_end')
+            if trial_end:
+                response['trial_message'] = f'You are on a 3-day free trial. Trial ends {trial_end.strftime("%B %d, %Y")}.'
 
         return func.HttpResponse(
             json.dumps(response),

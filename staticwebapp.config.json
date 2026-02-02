@@ -12,6 +12,13 @@
           "clientIdSettingName": "GOOGLE_CLIENT_ID",
           "clientSecretSettingName": "GOOGLE_CLIENT_SECRET"
         }
+      },
+      "azureActiveDirectory": {
+        "registration": {
+          "openIdIssuer": "https://login.microsoftonline.com/common/v2.0",
+          "clientIdSettingName": "MICROSOFT_CLIENT_ID",
+          "clientSecretSettingName": "MICROSOFT_CLIENT_SECRET"
+        }
       }
     }
   },
@@ -26,7 +33,15 @@
     },
     {
       "route": "/login",
+      "allowedRoles": ["anonymous", "authenticated"]
+    },
+    {
+      "route": "/login/google",
       "rewrite": "/.auth/login/google?post_login_redirect_uri=/dashboard"
+    },
+    {
+      "route": "/login/microsoft",
+      "rewrite": "/.auth/login/aad?post_login_redirect_uri=/dashboard"
     },
     {
       "route": "/logout",
@@ -82,6 +97,10 @@
     },
     {
       "route": "/api/investments",
+      "allowedRoles": ["authenticated"]
+    },
+    {
+      "route": "/api/update-profile",
       "allowedRoles": ["authenticated"]
     },
     {

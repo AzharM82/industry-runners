@@ -29,10 +29,12 @@ def init_schema():
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         email VARCHAR(255) UNIQUE NOT NULL,
         name VARCHAR(255),
+        phone_number VARCHAR(20),
         auth_provider VARCHAR(50),
         auth_provider_id VARCHAR(255),
         stripe_customer_id VARCHAR(255),
         is_admin BOOLEAN DEFAULT FALSE,
+        is_new_user BOOLEAN DEFAULT TRUE,
         last_login_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
@@ -92,6 +94,29 @@ def init_schema():
             WHERE table_name = 'users' AND column_name = 'last_login_at'
         ) THEN
             ALTER TABLE users ADD COLUMN last_login_at TIMESTAMP;
+        END IF;
+    END $$;
+
+    -- Add phone_number column to users table if it doesn't exist
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'users' AND column_name = 'phone_number'
+        ) THEN
+            ALTER TABLE users ADD COLUMN phone_number VARCHAR(20);
+        END IF;
+    END $$;
+
+    -- Add is_new_user column to users table if it doesn't exist
+    -- Existing users are marked as NOT new (they don't get trial)
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'users' AND column_name = 'is_new_user'
+        ) THEN
+            ALTER TABLE users ADD COLUMN is_new_user BOOLEAN DEFAULT FALSE;
         END IF;
     END $$;
     """
@@ -405,3 +430,113 @@ def check_user_has_access(email: str) -> dict:
         'subscription': None,
         'reason': 'No active subscription'
     }
+
+
+def update_user_phone(email: str, phone_number: str):
+    """Update user's phone number."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE users SET phone_number = %s, updated_at = NOW()
+        WHERE email = %s
+    """, (phone_number, email.lower()))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_user_phone(email: str) -> str:
+    """Get user's phone number."""
+    user = get_user_by_email(email)
+    return user.get('phone_number') if user else None
+
+
+def create_trial_subscription(user_id: str, trial_days: int = 3):
+    """Create a trial subscription for a new user (3 days by default)."""
+    from datetime import datetime, timedelta
+
+    conn = get_connection()
+    cur = get_cursor(conn)
+
+    # Check if user already has any subscription (active or not)
+    cur.execute("""
+        SELECT id FROM subscriptions WHERE user_id = %s LIMIT 1
+    """, (user_id,))
+    existing = cur.fetchone()
+
+    if existing:
+        cur.close()
+        conn.close()
+        return None  # User already had a subscription, no trial
+
+    # Create trial subscription
+    now = datetime.utcnow()
+    trial_end = now + timedelta(days=trial_days)
+
+    cur.execute("""
+        INSERT INTO subscriptions (user_id, stripe_subscription_id, status, current_period_start, current_period_end)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING *
+    """, (user_id, f'trial_{user_id}', 'trialing', now, trial_end))
+    sub = cur.fetchone()
+
+    # Mark user as no longer new
+    cur.execute("""
+        UPDATE users SET is_new_user = FALSE, updated_at = NOW()
+        WHERE id = %s
+    """, (user_id,))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return dict(sub) if sub else None
+
+
+def is_user_eligible_for_trial(email: str) -> bool:
+    """Check if user is eligible for trial (new user who never had subscription)."""
+    user = get_user_by_email(email)
+    if not user:
+        return True  # New user, will be created
+
+    # Check if user is marked as new
+    if not user.get('is_new_user', False):
+        return False
+
+    # Check if user ever had a subscription
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT COUNT(*) FROM subscriptions WHERE user_id = %s
+    """, (user['id'],))
+    count = cur.fetchone()[0]
+    cur.close()
+    conn.close()
+
+    return count == 0
+
+
+def get_or_create_user_with_trial(email: str, name: str = None, auth_provider: str = None, auth_provider_id: str = None):
+    """
+    Get existing user or create new one.
+    For new users, mark is_new_user=True so they're eligible for trial.
+    """
+    conn = get_connection()
+    cur = get_cursor(conn)
+
+    # Check if user exists
+    cur.execute("SELECT * FROM users WHERE email = %s", (email.lower(),))
+    user = cur.fetchone()
+
+    if not user:
+        # Create new user with is_new_user=True
+        cur.execute("""
+            INSERT INTO users (email, name, auth_provider, auth_provider_id, is_new_user)
+            VALUES (%s, %s, %s, %s, TRUE)
+            RETURNING *
+        """, (email.lower(), name, auth_provider, auth_provider_id))
+        user = cur.fetchone()
+        conn.commit()
+
+    cur.close()
+    conn.close()
+    return dict(user) if user else None

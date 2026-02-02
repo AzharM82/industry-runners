@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { LandingPage, Dashboard, AdminDashboard, AdminSystemInfo, AdminHealthCheck } from './pages';
+import { LandingPage, LoginPage, Dashboard, AdminDashboard, AdminSystemInfo, AdminHealthCheck } from './pages';
 import { useAuth, login } from './hooks';
 
 function App() {
@@ -44,6 +44,12 @@ function App() {
           element={
             <LandingPage onLogin={handleLogin} onSubscribe={handleSubscribe} />
           }
+        />
+
+        {/* Login page (public) */}
+        <Route
+          path="/login"
+          element={<LoginPage />}
         />
 
         {/* Dashboard (protected - Azure handles auth redirect) */}

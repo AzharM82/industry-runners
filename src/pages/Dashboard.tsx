@@ -19,12 +19,16 @@ import { useAuth, logout } from '../hooks';
 interface SubscriptionStatus {
   has_access: boolean;
   is_admin: boolean;
+  is_new_user?: boolean;
+  has_phone?: boolean;
   subscription: {
     status: string;
     current_period_end: string | null;
     cancel_at_period_end: boolean;
+    is_trial?: boolean;
   } | null;
   reason?: string;
+  trial_message?: string;
 }
 
 const API_BASE = '/api';
@@ -114,6 +118,10 @@ export function Dashboard() {
   const [marketOpen, setMarketOpen] = useState(isMarketOpen());
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+  const [showPhoneModal, setShowPhoneModal] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [phoneSubmitting, setPhoneSubmitting] = useState(false);
 
   // Check subscription status on mount
   useEffect(() => {
@@ -123,6 +131,10 @@ export function Dashboard() {
         if (response.ok) {
           const data = await response.json();
           setSubscriptionStatus(data);
+          // Show phone modal if user doesn't have phone number
+          if (data.has_access && !data.has_phone && !data.is_admin) {
+            setShowPhoneModal(true);
+          }
         } else {
           setSubscriptionStatus({ has_access: false, is_admin: false, subscription: null, reason: 'Failed to check subscription' });
         }
@@ -344,6 +356,41 @@ export function Dashboard() {
     fetchAllQuotes();
   };
 
+  const handlePhoneSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPhoneError(null);
+    setPhoneSubmitting(true);
+
+    // Basic validation
+    const cleaned = phoneNumber.replace(/[\s\-\(\)\+]/g, '');
+    if (!cleaned || cleaned.length < 10 || cleaned.length > 15) {
+      setPhoneError('Please enter a valid phone number (10-15 digits)');
+      setPhoneSubmitting(false);
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/update-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone_number: phoneNumber })
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setShowPhoneModal(false);
+        // Update subscription status to reflect phone is now set
+        setSubscriptionStatus(prev => prev ? { ...prev, has_phone: true } : prev);
+      } else {
+        setPhoneError(data.error || 'Failed to save phone number');
+      }
+    } catch (err) {
+      setPhoneError('Network error. Please try again.');
+    } finally {
+      setPhoneSubmitting(false);
+    }
+  };
+
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -452,6 +499,61 @@ export function Dashboard() {
           >
             Sign out
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Phone number collection modal - blocks access until phone is provided
+  if (showPhoneModal) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
+        <div className="max-w-md w-full bg-gray-800 rounded-2xl p-8 text-center border border-gray-700">
+          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <span className="text-white font-bold text-2xl">S</span>
+          </div>
+          <h1 className="text-2xl font-bold text-white mb-2">Complete Your Profile</h1>
+          <p className="text-gray-400 mb-6">
+            Please provide your phone number to receive important investment notifications and alerts.
+          </p>
+
+          {subscriptionStatus?.trial_message && (
+            <div className="mb-4 p-3 bg-blue-900/50 border border-blue-700 rounded-lg text-blue-300 text-sm">
+              {subscriptionStatus.trial_message}
+            </div>
+          )}
+
+          <form onSubmit={handlePhoneSubmit} className="space-y-4">
+            <div className="text-left">
+              <label htmlFor="phone" className="block text-sm font-medium text-gray-300 mb-2">
+                Phone Number
+              </label>
+              <input
+                type="tel"
+                id="phone"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="(555) 123-4567"
+                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+              />
+              {phoneError && (
+                <p className="mt-2 text-sm text-red-400">{phoneError}</p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={phoneSubmitting}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white font-semibold rounded-xl transition-colors"
+            >
+              {phoneSubmitting ? 'Saving...' : 'Continue to Dashboard'}
+            </button>
+          </form>
+
+          <p className="mt-4 text-xs text-gray-500">
+            Your phone number will only be used to send you investment notifications. We will never share it with third parties.
+          </p>
         </div>
       </div>
     );
@@ -616,6 +718,27 @@ export function Dashboard() {
           </div>
         </div>
       </header>
+
+      {/* Trial Status Banner */}
+      {subscriptionStatus?.subscription?.is_trial && subscriptionStatus?.trial_message && (
+        <div className="bg-gradient-to-r from-blue-900/80 to-purple-900/80 border-b border-blue-700">
+          <div className="max-w-[2400px] mx-auto px-4 py-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-blue-200 text-sm">
+                  {subscriptionStatus.trial_message}
+                </span>
+              </div>
+              <button
+                onClick={() => window.location.href = '/api/create-checkout-session'}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors"
+              >
+                Subscribe Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Dashboard Info Banner */}
       {activeTab === 'swing' && (
