@@ -104,6 +104,10 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/api/admin-sync-subscription",
+      "allowedRoles": ["authenticated"]
+    },
+    {
       "route": "/api/stripe-webhook",
       "allowedRoles": ["anonymous"]
     },
