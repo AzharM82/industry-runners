@@ -233,6 +233,30 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 # Check if subscription already exists
                 existing = get_subscription_by_stripe_id(stripe_sub.id)
                 if existing:
+                    # Check if it's linked to the correct user
+                    if str(existing.get('user_id')) != str(target_user['id']):
+                        # Update the subscription to link to correct user
+                        conn = get_connection()
+                        cur = conn.cursor()
+                        cur.execute("""
+                            UPDATE subscriptions
+                            SET user_id = %s, updated_at = NOW()
+                            WHERE stripe_subscription_id = %s
+                        """, (target_user['id'], stripe_sub.id))
+                        conn.commit()
+                        cur.close()
+                        conn.close()
+                        logging.info(f"Updated subscription {stripe_sub.id} to user {target_user['id']}")
+                        return func.HttpResponse(
+                            json.dumps({
+                                'success': True,
+                                'message': 'Subscription updated to correct user',
+                                'subscription_id': stripe_sub.id,
+                                'status': stripe_sub.status,
+                                'user_id': str(target_user['id'])
+                            }),
+                            mimetype='application/json'
+                        )
                     return func.HttpResponse(
                         json.dumps({
                             'success': True,
