@@ -234,18 +234,21 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 conn = get_connection()
                 cur = conn.cursor()
                 cur.execute("DELETE FROM subscriptions WHERE stripe_subscription_id = %s", (stripe_sub.id,))
+
+                # Insert new subscription directly with explicit timestamp conversion
+                cur.execute("""
+                    INSERT INTO subscriptions (user_id, stripe_subscription_id, status, current_period_start, current_period_end)
+                    VALUES (%s, %s, %s, to_timestamp(%s), to_timestamp(%s))
+                """, (
+                    str(target_user['id']),
+                    stripe_sub.id,
+                    stripe_sub.status,
+                    int(stripe_sub.current_period_start),
+                    int(stripe_sub.current_period_end)
+                ))
                 conn.commit()
                 cur.close()
                 conn.close()
-
-                # Create subscription in our database
-                create_subscription(
-                    user_id=str(target_user['id']),
-                    stripe_subscription_id=stripe_sub.id,
-                    status=stripe_sub.status,
-                    period_start=stripe_sub.current_period_start,
-                    period_end=stripe_sub.current_period_end
-                )
 
                 logging.info(f"Admin {user_email} synced subscription {stripe_sub.id} for {sync_email}")
 
