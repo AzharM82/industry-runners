@@ -79,33 +79,79 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
 
 def handle_checkout_completed(session):
-    """Handle successful checkout."""
+    """Handle successful checkout - create subscription immediately using metadata."""
     customer_email = session.get('customer_email', '').lower()
     customer_id = session.get('customer')
     subscription_id = session.get('subscription')
+    metadata = session.get('metadata', {})
 
-    logging.info(f"Checkout completed for {customer_email}, customer={customer_id}, sub={subscription_id}")
+    # Get user_id from metadata (set during checkout creation)
+    metadata_user_id = metadata.get('user_id')
+    metadata_email = metadata.get('user_email', '').lower()
 
-    if not customer_email:
-        logging.warning("No customer email in checkout session")
+    logging.info(f"Checkout completed for {customer_email}, customer={customer_id}, sub={subscription_id}, metadata={metadata}")
+
+    # Use metadata email if customer_email not available
+    email = customer_email or metadata_email
+    if not email:
+        logging.warning("No customer email in checkout session or metadata")
         return
 
-    # Ensure user exists
-    user = get_user_by_email(customer_email)
+    # Ensure user exists - prefer finding by metadata user_id
+    user = None
+    if metadata_user_id:
+        from shared.database import get_connection, get_cursor
+        conn = get_connection()
+        cur = get_cursor(conn)
+        cur.execute("SELECT * FROM users WHERE id = %s", (metadata_user_id,))
+        result = cur.fetchone()
+        if result:
+            user = dict(result)
+        cur.close()
+        conn.close()
+
     if not user:
-        logging.info(f"Creating user for {customer_email} from checkout")
+        user = get_user_by_email(email)
+
+    if not user:
+        logging.info(f"Creating user for {email} from checkout")
         user = get_or_create_user(
-            email=customer_email,
-            name=customer_email.split('@')[0],
+            email=email,
+            name=email.split('@')[0],
             auth_provider='stripe',
             auth_provider_id=customer_id
         )
 
+    if not user:
+        logging.error(f"Failed to get/create user for {email}")
+        return
+
     # Update stripe customer ID
     if customer_id:
-        update_user_stripe_customer(customer_email, customer_id)
+        update_user_stripe_customer(email, customer_id)
 
-    # Subscription will be created by subscription.created event
+    # Create subscription immediately if we have subscription_id
+    # Don't wait for subscription.created event - do it now!
+    if subscription_id:
+        existing = get_subscription_by_stripe_id(subscription_id)
+        if existing:
+            logging.info(f"Subscription {subscription_id} already exists")
+            return
+
+        try:
+            # Get subscription details from Stripe
+            stripe_sub = stripe.Subscription.retrieve(subscription_id)
+            create_subscription(
+                user_id=str(user['id']),
+                stripe_subscription_id=subscription_id,
+                status=stripe_sub.status,
+                period_start=stripe_sub.current_period_start,
+                period_end=stripe_sub.current_period_end
+            )
+            logging.info(f"Created subscription {subscription_id} for user {user['id']} ({email}) from checkout.session.completed")
+        except Exception as e:
+            logging.error(f"Error creating subscription from checkout: {e}")
+            # Will be retried by subscription.created event
 
 
 def handle_subscription_created(subscription):
@@ -115,17 +161,27 @@ def handle_subscription_created(subscription):
     status = subscription.get('status')
     period_start = subscription.get('current_period_start')
     period_end = subscription.get('current_period_end')
+    metadata = subscription.get('metadata', {})
 
-    # Get customer email from Stripe
-    try:
-        customer = stripe.Customer.retrieve(customer_id)
-        email = customer.get('email', '').lower()
-    except Exception as e:
-        logging.error(f"Could not retrieve customer {customer_id}: {e}")
+    logging.info(f"Subscription created event: sub={subscription_id}, customer={customer_id}, status={status}")
+
+    # Check if subscription already exists (may have been created by checkout.session.completed)
+    existing = get_subscription_by_stripe_id(subscription_id)
+    if existing:
+        logging.info(f"Subscription {subscription_id} already exists (created by checkout event)")
         return
 
+    # Get customer email from Stripe
+    email = None
+    try:
+        customer = stripe.Customer.retrieve(customer_id)
+        email = (customer.get('email') or '').lower()
+        logging.info(f"Retrieved customer {customer_id}, email={email}")
+    except Exception as e:
+        logging.error(f"Could not retrieve customer {customer_id}: {e}")
+
     if not email:
-        logging.error(f"No email found for customer {customer_id}")
+        logging.error(f"No email found for customer {customer_id}, cannot create subscription")
         return
 
     # Get or create user - ensures user exists even if they haven't logged in yet
@@ -145,13 +201,8 @@ def handle_subscription_created(subscription):
     # Update stripe customer ID on user
     update_user_stripe_customer(email, customer_id)
 
-    # Check if subscription already exists
-    existing = get_subscription_by_stripe_id(subscription_id)
-    if existing:
-        logging.info(f"Subscription {subscription_id} already exists")
-        return
-
-    create_subscription(
+    # Create subscription
+    result = create_subscription(
         user_id=str(user['id']),
         stripe_subscription_id=subscription_id,
         status=status,
@@ -159,7 +210,10 @@ def handle_subscription_created(subscription):
         period_end=period_end
     )
 
-    logging.info(f"Created subscription for {email}: {status}")
+    if result:
+        logging.info(f"Created subscription {subscription_id} for {email} (user_id={user['id']}): {status}")
+    else:
+        logging.error(f"Failed to create subscription {subscription_id} for {email}")
 
 
 def handle_subscription_updated(subscription):
