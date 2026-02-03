@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users,
@@ -15,7 +15,9 @@ import {
   HeartPulse,
   CreditCard,
   Clock,
-  Phone
+  Phone,
+  X,
+  Filter
 } from 'lucide-react';
 
 interface DailyReport {
@@ -64,6 +66,49 @@ export function AdminDashboard() {
   });
   const [activeTab, setActiveTab] = useState<'daily' | 'users'>('daily');
   const [refreshing, setRefreshing] = useState(false);
+
+  // Filter state for Users tab
+  const [statusFilter, setStatusFilter] = useState<'active' | 'trialing' | 'none' | null>(null);
+  const [hasPhoneFilter, setHasPhoneFilter] = useState<boolean | null>(null);
+  const [emailFilter, setEmailFilter] = useState('');
+  const [providerFilter, setProviderFilter] = useState<string | null>(null);
+
+  // Get unique auth providers for filter dropdown
+  const authProviders = useMemo(() => {
+    const providers = new Set(users.map(u => u.auth_provider || 'google'));
+    return Array.from(providers).sort();
+  }, [users]);
+
+  // Filter users based on active filters
+  const filteredUsers = useMemo(() => {
+    return users.filter(user => {
+      // Status filter
+      if (statusFilter === 'active' && user.subscription_status !== 'active') return false;
+      if (statusFilter === 'trialing' && user.subscription_status !== 'trialing') return false;
+      if (statusFilter === 'none' && user.subscription_status) return false;
+
+      // Phone filter
+      if (hasPhoneFilter === true && !user.has_phone) return false;
+      if (hasPhoneFilter === false && user.has_phone) return false;
+
+      // Email filter (case insensitive)
+      if (emailFilter && !user.email.toLowerCase().includes(emailFilter.toLowerCase())) return false;
+
+      // Provider filter
+      if (providerFilter && (user.auth_provider || 'google') !== providerFilter) return false;
+
+      return true;
+    });
+  }, [users, statusFilter, hasPhoneFilter, emailFilter, providerFilter]);
+
+  const hasActiveFilters = statusFilter !== null || hasPhoneFilter !== null || emailFilter !== '' || providerFilter !== null;
+
+  const clearAllFilters = () => {
+    setStatusFilter(null);
+    setHasPhoneFilter(null);
+    setEmailFilter('');
+    setProviderFilter(null);
+  };
 
   // Check if user is admin
   useEffect(() => {
@@ -408,9 +453,16 @@ export function AdminDashboard() {
 
         {activeTab === 'users' && (
           <>
-            {/* User Stats Summary */}
+            {/* User Stats Summary - Clickable Filter Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+              <button
+                onClick={() => setStatusFilter(statusFilter === 'active' ? null : 'active')}
+                className={`bg-gray-800 rounded-xl p-5 border transition-all text-left ${
+                  statusFilter === 'active'
+                    ? 'border-green-500 ring-2 ring-green-500/30'
+                    : 'border-gray-700 hover:border-green-500/50'
+                }`}
+              >
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm text-gray-400">Paid Users</span>
                   <CreditCard className="w-5 h-5 text-green-400" />
@@ -418,10 +470,19 @@ export function AdminDashboard() {
                 <div className="text-3xl font-bold text-green-400">
                   {users.filter(u => u.subscription_status === 'active').length}
                 </div>
-                <div className="text-xs text-gray-500 mt-1">active subscriptions</div>
-              </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {statusFilter === 'active' ? '✓ Filtering' : 'Click to filter'}
+                </div>
+              </button>
 
-              <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+              <button
+                onClick={() => setStatusFilter(statusFilter === 'trialing' ? null : 'trialing')}
+                className={`bg-gray-800 rounded-xl p-5 border transition-all text-left ${
+                  statusFilter === 'trialing'
+                    ? 'border-blue-500 ring-2 ring-blue-500/30'
+                    : 'border-gray-700 hover:border-blue-500/50'
+                }`}
+              >
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm text-gray-400">Trial Users</span>
                   <Clock className="w-5 h-5 text-blue-400" />
@@ -429,10 +490,19 @@ export function AdminDashboard() {
                 <div className="text-3xl font-bold text-blue-400">
                   {users.filter(u => u.subscription_status === 'trialing').length}
                 </div>
-                <div className="text-xs text-gray-500 mt-1">on 3-day trial</div>
-              </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {statusFilter === 'trialing' ? '✓ Filtering' : 'Click to filter'}
+                </div>
+              </button>
 
-              <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+              <button
+                onClick={() => setStatusFilter(statusFilter === 'none' ? null : 'none')}
+                className={`bg-gray-800 rounded-xl p-5 border transition-all text-left ${
+                  statusFilter === 'none'
+                    ? 'border-red-500 ring-2 ring-red-500/30'
+                    : 'border-gray-700 hover:border-red-500/50'
+                }`}
+              >
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm text-gray-400">No Subscription</span>
                   <Users className="w-5 h-5 text-red-400" />
@@ -440,10 +510,19 @@ export function AdminDashboard() {
                 <div className="text-3xl font-bold text-red-400">
                   {users.filter(u => !u.subscription_status).length}
                 </div>
-                <div className="text-xs text-gray-500 mt-1">need to subscribe</div>
-              </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {statusFilter === 'none' ? '✓ Filtering' : 'Click to filter'}
+                </div>
+              </button>
 
-              <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+              <button
+                onClick={() => setHasPhoneFilter(hasPhoneFilter === true ? null : true)}
+                className={`bg-gray-800 rounded-xl p-5 border transition-all text-left ${
+                  hasPhoneFilter === true
+                    ? 'border-purple-500 ring-2 ring-purple-500/30'
+                    : 'border-gray-700 hover:border-purple-500/50'
+                }`}
+              >
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm text-gray-400">Has Phone</span>
                   <Phone className="w-5 h-5 text-purple-400" />
@@ -452,21 +531,94 @@ export function AdminDashboard() {
                   {users.filter(u => u.has_phone).length}
                 </div>
                 <div className="text-xs text-gray-500 mt-1">
-                  {users.length > 0 ? `${((users.filter(u => u.has_phone).length / users.length) * 100).toFixed(0)}% of users` : '0%'}
+                  {hasPhoneFilter === true ? '✓ Filtering' : 'Click to filter'}
                 </div>
-              </div>
+              </button>
             </div>
 
             <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
             <div className="p-4 border-b border-gray-700 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5 text-purple-400" />
-                <h3 className="font-semibold text-white">All Users ({users.length})</h3>
+                <h3 className="font-semibold text-white">
+                  {hasActiveFilters
+                    ? `Filtered Users (${filteredUsers.length} of ${users.length})`
+                    : `All Users (${users.length})`
+                  }
+                </h3>
               </div>
-              <div className="text-sm text-gray-400">
-                Sorted by signup date (newest first)
+              <div className="flex items-center gap-3">
+                {hasActiveFilters && (
+                  <button
+                    onClick={clearAllFilters}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/30 text-red-400 rounded-lg hover:bg-red-900/50 transition text-sm font-medium"
+                  >
+                    <X className="w-4 h-4" />
+                    Clear Filters
+                  </button>
+                )}
+                <div className="text-sm text-gray-400">
+                  Sorted by signup date (newest first)
+                </div>
               </div>
             </div>
+
+            {/* Filter Row */}
+            <div className="p-3 bg-gray-900/30 border-b border-gray-700 flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-gray-500" />
+                <span className="text-xs text-gray-500 uppercase">Filters:</span>
+              </div>
+
+              {/* Email Filter */}
+              <input
+                type="text"
+                placeholder="Search email..."
+                value={emailFilter}
+                onChange={(e) => setEmailFilter(e.target.value)}
+                className="px-3 py-1.5 bg-gray-700 text-white text-sm rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 w-48"
+              />
+
+              {/* Status Filter Dropdown */}
+              <select
+                value={statusFilter || ''}
+                onChange={(e) => setStatusFilter(e.target.value as 'active' | 'trialing' | 'none' | null || null)}
+                className="px-3 py-1.5 bg-gray-700 text-white text-sm rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">All Statuses</option>
+                <option value="active">Paid</option>
+                <option value="trialing">Trial</option>
+                <option value="none">No Subscription</option>
+              </select>
+
+              {/* Provider Filter Dropdown */}
+              <select
+                value={providerFilter || ''}
+                onChange={(e) => setProviderFilter(e.target.value || null)}
+                className="px-3 py-1.5 bg-gray-700 text-white text-sm rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">All Providers</option>
+                {authProviders.map(provider => (
+                  <option key={provider} value={provider}>{provider}</option>
+                ))}
+              </select>
+
+              {/* Phone Filter Dropdown */}
+              <select
+                value={hasPhoneFilter === null ? '' : hasPhoneFilter ? 'yes' : 'no'}
+                onChange={(e) => {
+                  if (e.target.value === '') setHasPhoneFilter(null);
+                  else if (e.target.value === 'yes') setHasPhoneFilter(true);
+                  else setHasPhoneFilter(false);
+                }}
+                className="px-3 py-1.5 bg-gray-700 text-white text-sm rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">All Phone</option>
+                <option value="yes">Has Phone</option>
+                <option value="no">No Phone</option>
+              </select>
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-900/50">
@@ -482,7 +634,7 @@ export function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700">
-                  {users.map((user) => (
+                  {filteredUsers.map((user) => (
                     <tr key={user.id} className="hover:bg-gray-700/30">
                       <td className="px-4 py-3">
                         <div className="text-white font-medium">{user.email}</div>
@@ -533,6 +685,27 @@ export function AdminDashboard() {
                       </td>
                     </tr>
                   ))}
+                  {filteredUsers.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-12 text-center">
+                        <div className="text-gray-500">
+                          {hasActiveFilters ? (
+                            <>
+                              <p className="mb-2">No users match the current filters</p>
+                              <button
+                                onClick={clearAllFilters}
+                                className="text-blue-400 hover:text-blue-300 text-sm"
+                              >
+                                Clear all filters
+                              </button>
+                            </>
+                          ) : (
+                            <p>No users found</p>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
