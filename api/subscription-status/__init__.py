@@ -114,20 +114,40 @@ def get_all_users():
     """)
     login_counts = {str(row['user_id']): row['login_count'] for row in cur.fetchall()}
 
-    # Get subscription status for each user
+    # Get ALL subscriptions for each user (most recent first)
+    # This includes both active paid subscriptions and trials
     cur.execute("""
-        SELECT user_id, status, stripe_subscription_id, current_period_end
+        SELECT DISTINCT ON (user_id)
+            user_id, status, stripe_subscription_id, current_period_end
         FROM subscriptions
-        WHERE (status IN ('active', 'trialing') AND current_period_end > NOW())
-           OR stripe_subscription_id LIKE 'trial_%'
+        ORDER BY user_id, created_at DESC
     """)
     subscriptions = {}
     for row in cur.fetchall():
         user_id = str(row['user_id'])
+        stripe_sub_id = row['stripe_subscription_id'] or ''
+        status = row['status']
+        period_end = row['current_period_end']
+
+        # Determine if subscription is active
+        is_trial = stripe_sub_id.startswith('trial_')
+        is_active = status in ('active', 'trialing')
+
+        # Check if not expired (period_end > now)
+        is_valid = True
+        if period_end:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            if period_end.tzinfo is None:
+                # Assume UTC if no timezone
+                period_end = period_end.replace(tzinfo=timezone.utc)
+            is_valid = period_end > now
+
         subscriptions[user_id] = {
-            'status': row['status'],
-            'is_trial': row['stripe_subscription_id'].startswith('trial_') if row['stripe_subscription_id'] else False,
-            'expires': row['current_period_end']
+            'status': status if (is_active and is_valid) else ('expired' if not is_valid else status),
+            'is_trial': is_trial,
+            'expires': row['current_period_end'],
+            'stripe_sub_id': stripe_sub_id
         }
 
     # Merge data into users
