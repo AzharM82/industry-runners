@@ -20,6 +20,78 @@ stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
 from shared.timezone import now_pst, today_pst
 
 
+def _try_auto_sync_from_stripe(user, user_email):
+    """
+    Auto-sync subscription from Stripe if webhook failed.
+    This is a fallback to ensure users who paid get access immediately.
+    """
+    try:
+        # First check if user has a stripe_customer_id
+        customer_id = user.get('stripe_customer_id')
+
+        if not customer_id:
+            # Try to find customer by email in Stripe
+            logging.info(f"Auto-sync: Looking up Stripe customer for {user_email}")
+            customers = stripe.Customer.list(email=user_email, limit=1)
+            if not customers.data:
+                logging.info(f"Auto-sync: No Stripe customer found for {user_email}")
+                return None
+            customer_id = customers.data[0].id
+            # Update user with stripe_customer_id
+            update_user_stripe_customer(user_email, customer_id)
+            logging.info(f"Auto-sync: Found and linked Stripe customer {customer_id}")
+
+        # Check for active subscriptions
+        logging.info(f"Auto-sync: Checking subscriptions for customer {customer_id}")
+        subscriptions = stripe.Subscription.list(customer=customer_id, status='active', limit=1)
+
+        if not subscriptions.data:
+            # Also check trialing status
+            subscriptions = stripe.Subscription.list(customer=customer_id, status='trialing', limit=1)
+
+        if not subscriptions.data:
+            logging.info(f"Auto-sync: No active subscription found for {user_email}")
+            return None
+
+        stripe_sub = subscriptions.data[0]
+        logging.info(f"Auto-sync: Found Stripe subscription {stripe_sub.id} with status {stripe_sub.status}")
+
+        # Check if this subscription already exists in our DB
+        existing = get_subscription_by_stripe_id(stripe_sub.id)
+        if existing:
+            logging.info(f"Auto-sync: Subscription {stripe_sub.id} already exists in DB")
+            return existing
+
+        # Create subscription in our database
+        period_start = getattr(stripe_sub, 'current_period_start', None) or int(datetime.now().timestamp())
+        period_end = getattr(stripe_sub, 'current_period_end', None) or int(datetime.now().timestamp()) + (30 * 24 * 60 * 60)
+
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO subscriptions (user_id, stripe_subscription_id, status, current_period_start, current_period_end)
+            VALUES (%s, %s, %s, to_timestamp(%s), to_timestamp(%s))
+        """, (
+            str(user['id']),
+            stripe_sub.id,
+            str(stripe_sub.status),
+            int(period_start),
+            int(period_end)
+        ))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        logging.info(f"Auto-sync SUCCESS: Created subscription {stripe_sub.id} for {user_email}")
+
+        # Return the subscription we just created
+        return get_subscription(str(user['id']))
+
+    except Exception as e:
+        logging.error(f"Auto-sync error for {user_email}: {e}")
+        return None
+
+
 def get_user_from_auth(req):
     """Extract user info from Azure Static Web Apps auth header."""
     client_principal = req.headers.get('X-MS-CLIENT-PRINCIPAL')
@@ -330,8 +402,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype='application/json'
             )
 
-        # Get subscription
+        # Get subscription from our database
         subscription = get_subscription(str(user['id']))
+
+        # AUTO-SYNC FALLBACK: If no subscription in DB, check Stripe directly
+        # This handles cases where webhook failed or was delayed
+        if not subscription:
+            subscription = _try_auto_sync_from_stripe(user, user_email)
 
         # Check if user is eligible for trial (new user who never had subscription)
         is_new = user.get('is_new_user', False)
