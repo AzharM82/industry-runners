@@ -405,19 +405,18 @@ export function SectorRotationView() {
         </svg>
       </div>
 
-      {/* NH/NL Bar Chart */}
+      {/* NH/NL Stacked Bar Chart */}
       {dailyTotals.length > 0 && (
         <div className="mt-8">
           <h3 className="text-lg font-bold text-white mb-4">Daily New Highs vs New Lows</h3>
           <div className="bg-gray-900/50 rounded-lg p-4">
-            <svg width="100%" height="200" viewBox={`0 0 ${Math.max(600, dailyTotals.length * 60)} 200`} preserveAspectRatio="xMidYMid meet">
-              {/* Calculate max value for scaling */}
+            <svg width="100%" height="220" viewBox={`0 0 ${Math.max(600, dailyTotals.length * 50 + 60)} 220`} preserveAspectRatio="xMidYMid meet">
               {(() => {
-                const maxVal = Math.max(...dailyTotals.map(d => Math.max(d.nh, d.nl)), 1);
-                const barWidth = 20;
-                const groupWidth = 50;
-                const chartHeight = 150;
-                const padding = { left: 40, top: 10, bottom: 40 };
+                const maxVal = Math.max(...dailyTotals.map(d => d.nh + d.nl), 1);
+                const barWidth = 32;
+                const groupWidth = 45;
+                const chartHeight = 160;
+                const padding = { left: 45, top: 15, bottom: 45 };
 
                 return (
                   <>
@@ -441,62 +440,83 @@ export function SectorRotationView() {
                       );
                     })}
 
-                    {/* Bars */}
+                    {/* Stacked Bars */}
                     {dailyTotals.map((day, i) => {
-                      const x = padding.left + i * groupWidth + 5;
+                      const x = padding.left + i * groupWidth + (groupWidth - barWidth) / 2;
+                      const total = day.nh + day.nl;
                       const nhHeight = (day.nh / maxVal) * chartHeight;
                       const nlHeight = (day.nl / maxVal) * chartHeight;
+                      const totalHeight = nhHeight + nlHeight;
 
                       return (
                         <g key={day.date}>
-                          {/* NH bar (green) */}
-                          <rect
-                            x={x}
-                            y={padding.top + chartHeight - nhHeight}
-                            width={barWidth}
-                            height={nhHeight}
-                            fill="#22c55e"
-                            opacity={0.8}
-                          />
-                          {/* NH value label */}
+                          {/* Green (NH) at bottom */}
                           {day.nh > 0 && (
+                            <rect
+                              x={x}
+                              y={padding.top + chartHeight - nhHeight}
+                              width={barWidth}
+                              height={nhHeight}
+                              fill="#22c55e"
+                              rx={2}
+                            />
+                          )}
+                          {/* Red (NL) stacked on top */}
+                          {day.nl > 0 && (
+                            <rect
+                              x={x}
+                              y={padding.top + chartHeight - totalHeight}
+                              width={barWidth}
+                              height={nlHeight}
+                              fill="#ef4444"
+                              rx={day.nh === 0 ? 2 : 0}
+                              style={{ borderTopLeftRadius: 2, borderTopRightRadius: 2 }}
+                            />
+                          )}
+
+                          {/* Value labels inside bars */}
+                          {day.nh > 0 && nhHeight > 14 && (
                             <text
                               x={x + barWidth / 2}
-                              y={padding.top + chartHeight - nhHeight - 4}
-                              fill="#22c55e"
+                              y={padding.top + chartHeight - nhHeight / 2 + 4}
+                              fill="white"
                               fontSize={10}
+                              fontWeight="bold"
                               textAnchor="middle"
                             >
                               {day.nh}
                             </text>
                           )}
-
-                          {/* NL bar (red) */}
-                          <rect
-                            x={x + barWidth + 2}
-                            y={padding.top + chartHeight - nlHeight}
-                            width={barWidth}
-                            height={nlHeight}
-                            fill="#ef4444"
-                            opacity={0.8}
-                          />
-                          {/* NL value label */}
-                          {day.nl > 0 && (
+                          {day.nl > 0 && nlHeight > 14 && (
                             <text
-                              x={x + barWidth + 2 + barWidth / 2}
-                              y={padding.top + chartHeight - nlHeight - 4}
-                              fill="#ef4444"
+                              x={x + barWidth / 2}
+                              y={padding.top + chartHeight - nhHeight - nlHeight / 2 + 4}
+                              fill="white"
                               fontSize={10}
+                              fontWeight="bold"
                               textAnchor="middle"
                             >
                               {day.nl}
                             </text>
                           )}
 
+                          {/* Total label on top of bar */}
+                          {total > 0 && (
+                            <text
+                              x={x + barWidth / 2}
+                              y={padding.top + chartHeight - totalHeight - 6}
+                              fill="#aaa"
+                              fontSize={10}
+                              textAnchor="middle"
+                            >
+                              {total}
+                            </text>
+                          )}
+
                           {/* Date label */}
                           <text
-                            x={x + barWidth + 1}
-                            y={padding.top + chartHeight + 16}
+                            x={x + barWidth / 2}
+                            y={padding.top + chartHeight + 18}
                             fill="#888"
                             fontSize={10}
                             textAnchor="middle"
