@@ -116,6 +116,10 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/api/admin-debug-subscription",
+      "allowedRoles": ["authenticated"]
+    },
+    {
       "route": "/api/stripe-webhook",
       "allowedRoles": ["anonymous"]
     },
