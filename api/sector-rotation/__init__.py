@@ -218,8 +218,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Cache key
         cache_key = "sector-rotation:daily"
 
-        # Check cache first (force cache when market closed unless explicit refresh)
-        if not refresh or not market_open:
+        # Check cache first (skip cache when explicit refresh requested)
+        if not refresh:
             cached_data = get_cached(cache_key)
             if cached_data:
                 logging.info(f"Cache hit for sector-rotation (market_open={market_open})")
