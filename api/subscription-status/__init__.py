@@ -446,6 +446,26 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Get subscription from local database
         subscription = get_subscription(user_id)
 
+        # Debug: Check if there are ANY subscriptions for this user (even non-active)
+        all_subs_debug = None
+        if not subscription:
+            try:
+                conn = get_connection()
+                cur = get_cursor(conn)
+                cur.execute("""
+                    SELECT stripe_subscription_id, status, current_period_end
+                    FROM subscriptions WHERE user_id = %s
+                    ORDER BY created_at DESC LIMIT 5
+                """, (user_id,))
+                all_subs = cur.fetchall()
+                cur.close()
+                conn.close()
+                if all_subs:
+                    all_subs_debug = [dict(s) for s in all_subs]
+                    logging.info(f"Found {len(all_subs)} total subscriptions for {user_email}: {all_subs_debug}")
+            except Exception as e:
+                logging.error(f"Error checking all subscriptions: {e}")
+
         # ========== AUTO-SYNC FIX ==========
         # If no subscription found locally, try to sync from Stripe
         # This fixes the race condition where webhook hasn't processed yet
@@ -502,6 +522,18 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             # Include debug info to help diagnose sync issues
             if sync_debug:
                 response['sync_debug'] = sync_debug
+                if all_subs_debug:
+                    response['sync_debug']['local_subscriptions'] = all_subs_debug
+            else:
+                # No sync attempted, add basic debug
+                response['sync_debug'] = {
+                    'email': user_email,
+                    'user_id': user_id,
+                    'is_new_user': is_new,
+                    'trial_eligible': trial_eligible,
+                    'local_subscriptions': all_subs_debug,
+                    'note': 'No Stripe sync attempted - user had local subscription or trial created'
+                }
 
         # Add trial message if on trial
         if subscription and (subscription.get('stripe_subscription_id') or '').startswith('trial_'):
