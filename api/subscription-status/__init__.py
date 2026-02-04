@@ -1,5 +1,6 @@
 """
-Subscription Status API
+Subscription Status API - FIXED VERSION
+Auto-syncs with Stripe if subscription not found locally
 Also handles admin reports via ?report=daily or ?report=users
 """
 
@@ -12,84 +13,25 @@ import azure.functions as func
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from shared.database import get_user_by_email, get_subscription, get_usage_count, init_schema, get_connection, get_cursor, create_trial_subscription, is_user_eligible_for_trial, get_or_create_user, update_user_stripe_customer, create_subscription, get_subscription_by_stripe_id
+from shared.database import (
+    get_user_by_email, 
+    get_subscription, 
+    get_usage_count, 
+    init_schema, 
+    get_connection, 
+    get_cursor, 
+    create_trial_subscription, 
+    is_user_eligible_for_trial, 
+    get_or_create_user, 
+    update_user_stripe_customer, 
+    create_subscription, 
+    get_subscription_by_stripe_id
+)
 from shared.admin import is_admin, MONTHLY_LIMIT
 import stripe
 
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
 from shared.timezone import now_pst, today_pst
-
-
-def _try_auto_sync_from_stripe(user, user_email):
-    """
-    Auto-sync subscription from Stripe if webhook failed.
-    This is a fallback to ensure users who paid get access immediately.
-    """
-    try:
-        # First check if user has a stripe_customer_id
-        customer_id = user.get('stripe_customer_id')
-
-        if not customer_id:
-            # Try to find customer by email in Stripe
-            logging.info(f"Auto-sync: Looking up Stripe customer for {user_email}")
-            customers = stripe.Customer.list(email=user_email, limit=1)
-            if not customers.data:
-                logging.info(f"Auto-sync: No Stripe customer found for {user_email}")
-                return None
-            customer_id = customers.data[0].id
-            # Update user with stripe_customer_id
-            update_user_stripe_customer(user_email, customer_id)
-            logging.info(f"Auto-sync: Found and linked Stripe customer {customer_id}")
-
-        # Check for active subscriptions
-        logging.info(f"Auto-sync: Checking subscriptions for customer {customer_id}")
-        subscriptions = stripe.Subscription.list(customer=customer_id, status='active', limit=1)
-
-        if not subscriptions.data:
-            # Also check trialing status
-            subscriptions = stripe.Subscription.list(customer=customer_id, status='trialing', limit=1)
-
-        if not subscriptions.data:
-            logging.info(f"Auto-sync: No active subscription found for {user_email}")
-            return None
-
-        stripe_sub = subscriptions.data[0]
-        logging.info(f"Auto-sync: Found Stripe subscription {stripe_sub.id} with status {stripe_sub.status}")
-
-        # Check if this subscription already exists in our DB
-        existing = get_subscription_by_stripe_id(stripe_sub.id)
-        if existing:
-            logging.info(f"Auto-sync: Subscription {stripe_sub.id} already exists in DB")
-            return existing
-
-        # Create subscription in our database
-        period_start = getattr(stripe_sub, 'current_period_start', None) or int(datetime.now().timestamp())
-        period_end = getattr(stripe_sub, 'current_period_end', None) or int(datetime.now().timestamp()) + (30 * 24 * 60 * 60)
-
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO subscriptions (user_id, stripe_subscription_id, status, current_period_start, current_period_end)
-            VALUES (%s, %s, %s, to_timestamp(%s), to_timestamp(%s))
-        """, (
-            str(user['id']),
-            stripe_sub.id,
-            str(stripe_sub.status),
-            int(period_start),
-            int(period_end)
-        ))
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        logging.info(f"Auto-sync SUCCESS: Created subscription {stripe_sub.id} for {user_email}")
-
-        # Return the subscription we just created
-        return get_subscription(str(user['id']))
-
-    except Exception as e:
-        logging.error(f"Auto-sync error for {user_email}: {e}")
-        return None
 
 
 def get_user_from_auth(req):
@@ -109,6 +51,81 @@ def json_serializer(obj):
     if hasattr(obj, 'isoformat'):
         return obj.isoformat()
     raise TypeError(f"Type {type(obj)} not serializable")
+
+
+def auto_sync_stripe_subscription(email: str, user_id: str) -> dict:
+    """
+    Automatically sync subscription from Stripe if not found locally.
+    This fixes the race condition where webhook hasn't processed yet.
+    Returns the subscription dict if found and synced, None otherwise.
+    """
+    if not stripe.api_key:
+        logging.warning("Stripe API key not configured, cannot auto-sync")
+        return None
+    
+    try:
+        # Find customer in Stripe by email
+        customers = stripe.Customer.list(email=email, limit=1)
+        if not customers.data:
+            logging.info(f"No Stripe customer found for {email}")
+            return None
+        
+        customer = customers.data[0]
+        customer_id = customer.id
+        logging.info(f"Found Stripe customer {customer_id} for {email}")
+        
+        # Update stripe customer ID on user
+        update_user_stripe_customer(email, customer_id)
+        
+        # Find active/trialing subscriptions
+        subscriptions = stripe.Subscription.list(customer=customer_id, status='active', limit=1)
+        if not subscriptions.data:
+            subscriptions = stripe.Subscription.list(customer=customer_id, status='trialing', limit=1)
+        
+        if not subscriptions.data:
+            logging.info(f"No active subscription found in Stripe for {email}")
+            return None
+        
+        stripe_sub = subscriptions.data[0]
+        logging.info(f"Found Stripe subscription {stripe_sub.id} with status {stripe_sub.status}")
+        
+        # Check if subscription already exists in our DB
+        existing = get_subscription_by_stripe_id(stripe_sub.id)
+        if existing:
+            logging.info(f"Subscription {stripe_sub.id} already exists in DB")
+            return existing
+        
+        # Delete any trial subscriptions for this user
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            DELETE FROM subscriptions 
+            WHERE user_id = %s AND stripe_subscription_id LIKE 'trial_%%'
+        """, (user_id,))
+        deleted_trials = cur.rowcount
+        if deleted_trials > 0:
+            logging.info(f"Deleted {deleted_trials} trial subscription(s) during auto-sync")
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        # Create the subscription in our database
+        new_sub = create_subscription(
+            user_id=user_id,
+            stripe_subscription_id=stripe_sub.id,
+            status=stripe_sub.status,
+            period_start=stripe_sub.current_period_start,
+            period_end=stripe_sub.current_period_end
+        )
+        
+        logging.info(f"AUTO-SYNCED subscription {stripe_sub.id} for {email} (user_id={user_id})")
+        return new_sub
+        
+    except Exception as e:
+        logging.error(f"Error auto-syncing subscription for {email}: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return None
 
 
 def get_daily_report(date: str = None):
@@ -278,7 +295,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     mimetype='application/json'
                 )
 
-        # Admin sync subscription feature
+        # Admin sync subscription feature (manual override)
         sync_email = req.params.get('sync', '').lower().strip()
         if sync_email and is_admin(user_email):
             try:
@@ -402,21 +419,30 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype='application/json'
             )
 
-        # Get subscription from our database
-        subscription = get_subscription(str(user['id']))
+        user_id = str(user['id'])
 
-        # AUTO-SYNC FALLBACK: If no subscription in DB, check Stripe directly
-        # This handles cases where webhook failed or was delayed
+        # Get subscription from local database
+        subscription = get_subscription(user_id)
+
+        # ========== AUTO-SYNC FIX ==========
+        # If no subscription found locally, try to sync from Stripe
+        # This fixes the race condition where webhook hasn't processed yet
         if not subscription:
-            subscription = _try_auto_sync_from_stripe(user, user_email)
+            logging.info(f"No local subscription for {user_email}, attempting auto-sync from Stripe...")
+            synced_sub = auto_sync_stripe_subscription(user_email, user_id)
+            if synced_sub:
+                # Re-fetch the subscription to get proper format
+                subscription = get_subscription(user_id)
+                logging.info(f"Auto-sync successful for {user_email}")
+        # ====================================
 
         # Check if user is eligible for trial (new user who never had subscription)
         is_new = user.get('is_new_user', False)
         trial_eligible = is_user_eligible_for_trial(user_email)
 
-        # Auto-create trial for eligible new users
+        # Auto-create trial for eligible new users (only if no Stripe subscription found)
         if trial_eligible and not subscription:
-            subscription = create_trial_subscription(str(user['id']), trial_days=3)
+            subscription = create_trial_subscription(user_id, trial_days=3)
             logging.info(f"Created 3-day trial for new user: {user_email}")
 
         # Determine access - need active subscription (trial or paid)
@@ -428,7 +454,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         usage = {}
         for prompt_type in ['chartgpt', 'deep-research', 'halal']:
-            used = get_usage_count(str(user['id']), prompt_type, month_year)
+            used = get_usage_count(user_id, prompt_type, month_year)
             usage[prompt_type] = {
                 'used': used,
                 'limit': monthly_limit
@@ -443,7 +469,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 'status': subscription['status'] if subscription else None,
                 'current_period_end': subscription['current_period_end'].isoformat() if subscription and subscription.get('current_period_end') else None,
                 'cancel_at_period_end': subscription.get('cancel_at_period_end', False) if subscription else False,
-                'is_trial': subscription['status'] == 'trialing' if subscription else False
+                'is_trial': (subscription['stripe_subscription_id'] or '').startswith('trial_') if subscription else False
             } if subscription else None,
             'usage': usage
         }
@@ -453,7 +479,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             response['reason'] = 'No active subscription. Please subscribe to continue.'
 
         # Add trial message if on trial
-        if subscription and subscription.get('status') == 'trialing':
+        if subscription and (subscription.get('stripe_subscription_id') or '').startswith('trial_'):
             trial_end = subscription.get('current_period_end')
             if trial_end:
                 response['trial_message'] = f'You are on a 3-day free trial. Trial ends {trial_end.strftime("%B %d, %Y")}.'
@@ -465,6 +491,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     except Exception as e:
         logging.error(f"Error checking subscription status: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
         return func.HttpResponse(
             json.dumps({'error': str(e)}),
             status_code=500,
