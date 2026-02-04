@@ -54,6 +54,7 @@ export function SectorRotationView() {
   const [error, setError] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [chartWidth, setChartWidth] = useState(1600);
+  const [activeNHNLChart, setActiveNHNLChart] = useState<'heatmap' | 'timeline'>('heatmap');
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Measure container width on mount and resize
@@ -188,18 +189,64 @@ export function SectorRotationView() {
       .slice(0, 15);
   }, [nhnlHistory]);
 
-  // Calculate total NH/NL per day for the bar chart
-  const dailyTotals = useMemo(() => {
-    return filteredHistoryDays.map(day => {
-      let totalNH = 0;
-      let totalNL = 0;
-      Object.values(day.sectors).forEach((s: { nh: number; nl: number }) => {
-        totalNH += s.nh;
-        totalNL += s.nl;
+  // Calculate net score (NH - NL) per sector per day for charts
+  const sectorNetScores = useMemo(() => {
+    // Build data structure: { sectorName: [{ date, net, nh, nl }] }
+    const scores: Record<string, { date: string; net: number; nh: number; nl: number }[]> = {};
+
+    SECTOR_ORDER.forEach(sector => {
+      scores[sector] = [];
+    });
+
+    // Process days in reverse order (oldest first) for the timeline
+    const reversedDays = [...filteredHistoryDays].reverse();
+
+    reversedDays.forEach(day => {
+      SECTOR_ORDER.forEach(sector => {
+        const data = day.sectors[sector] || { nh: 0, nl: 0 };
+        scores[sector].push({
+          date: day.date,
+          net: data.nh - data.nl,
+          nh: data.nh,
+          nl: data.nl
+        });
       });
-      return { date: day.date, nh: totalNH, nl: totalNL };
-    }).reverse(); // Oldest to newest for chart
+    });
+
+    return scores;
   }, [filteredHistoryDays]);
+
+  // Calculate cumulative net score per sector for sorting legend
+  const sectorCumulativeScores = useMemo(() => {
+    return SECTOR_ORDER.map(sector => {
+      const total = sectorNetScores[sector]?.reduce((sum, d) => sum + d.net, 0) || 0;
+      return { sector, total };
+    }).sort((a, b) => b.total - a.total);
+  }, [sectorNetScores]);
+
+  // Sector colors for the line chart
+  const sectorColors: Record<string, string> = {
+    'Tech': '#22d3ee',        // cyan
+    'Financials': '#f87171',   // red
+    'Health Care': '#4ade80',  // green
+    'Discretionary': '#a78bfa', // purple
+    'Comm Services': '#2dd4bf', // teal
+    'Industrials': '#34d399',   // emerald
+    'Staples': '#fb923c',       // orange
+    'Energy': '#f472b6',        // pink
+    'Utilities': '#c084fc',     // violet
+    'Materials': '#60a5fa',     // blue
+    'Real Estate': '#fbbf24'    // amber
+  };
+
+  // Get heatmap cell color based on net score
+  const getHeatmapColor = (net: number) => {
+    if (net >= 6) return 'bg-green-600'; // Strong Highs
+    if (net >= 1) return 'bg-green-700/70'; // Moderate Highs
+    if (net === 0) return 'bg-gray-700'; // Neutral
+    if (net >= -5) return 'bg-red-700/70'; // Moderate Lows
+    return 'bg-red-600'; // Strong Lows
+  };
 
   if (loading && !data) {
     return (
@@ -405,193 +452,239 @@ export function SectorRotationView() {
         </svg>
       </div>
 
-      {/* NH/NL Stacked Bar Chart */}
-      {dailyTotals.length > 0 && (
+      {/* NH/NL Charts Section */}
+      {filteredHistoryDays.length > 0 && (
         <div className="mt-8">
-          <h3 className="text-lg font-bold text-white mb-4">Daily New Highs vs New Lows</h3>
-          <div className="bg-gray-900/50 rounded-lg p-4">
-            <svg width="100%" height="220" viewBox={`0 0 ${Math.max(600, dailyTotals.length * 50 + 60)} 220`} preserveAspectRatio="xMidYMid meet">
-              {(() => {
-                const maxVal = Math.max(...dailyTotals.map(d => d.nh + d.nl), 1);
-                const barWidth = 32;
-                const groupWidth = 45;
-                const chartHeight = 160;
-                const padding = { left: 45, top: 15, bottom: 45 };
+          <h3 className="text-lg font-bold text-white mb-1">New Highs / New Lows by Sector</h3>
+          <p className="text-sm text-gray-500 mb-4">Last {filteredHistoryDays.length} Business Days • Format: NH / NL (15-Day Period)</p>
 
-                return (
-                  <>
-                    {/* Y-axis labels */}
-                    {[0, Math.round(maxVal / 2), maxVal].map((val, i) => {
-                      const y = padding.top + chartHeight - (val / maxVal) * chartHeight;
-                      return (
-                        <g key={`y-${i}`}>
-                          <text x={padding.left - 8} y={y + 4} fill="#666" fontSize={11} textAnchor="end">
-                            {val}
-                          </text>
+          {/* Chart Toggle Tabs */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setActiveNHNLChart('heatmap')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeNHNLChart === 'heatmap'
+                  ? 'bg-green-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              Heatmap
+            </button>
+            <button
+              onClick={() => setActiveNHNLChart('timeline')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeNHNLChart === 'timeline'
+                  ? 'bg-green-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              Net Score Timeline
+            </button>
+          </div>
+
+          {/* Heatmap View */}
+          {activeNHNLChart === 'heatmap' && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-700">
+                    <th className="text-left text-gray-400 py-3 px-3 sticky left-0 bg-black">Date</th>
+                    {SECTOR_ORDER.map(sector => (
+                      <th key={sector} className="text-center text-gray-400 py-3 px-2 min-w-[85px]">
+                        <div className="text-xs">{sector}</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredHistoryDays.map((day) => (
+                    <tr key={day.date}>
+                      <td className="text-gray-300 py-2 px-3 sticky left-0 bg-black font-medium">
+                        {formatDate(day.date)}
+                      </td>
+                      {SECTOR_ORDER.map(sector => {
+                        const sectorData = day.sectors[sector] || { nh: 0, nl: 0 };
+                        const net = sectorData.nh - sectorData.nl;
+                        return (
+                          <td key={sector} className="p-1">
+                            <div className={`${getHeatmapColor(net)} rounded-lg py-3 px-2 text-center`}>
+                              <div className="text-white font-bold text-base">
+                                {net > 0 ? '+' : ''}{net}
+                              </div>
+                              <div className="text-white/70 text-xs">
+                                {sectorData.nh}/{sectorData.nl}
+                              </div>
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {/* Legend */}
+              <div className="flex justify-center gap-4 mt-4 text-xs flex-wrap">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-green-600 rounded"></div>
+                  <span className="text-gray-400">Strong Highs</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-green-700/70 rounded"></div>
+                  <span className="text-gray-400">Moderate Highs</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-gray-700 rounded"></div>
+                  <span className="text-gray-400">Neutral</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-red-700/70 rounded"></div>
+                  <span className="text-gray-400">Moderate Lows</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-red-600 rounded"></div>
+                  <span className="text-gray-400">Strong Lows</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Net Score Timeline View */}
+          {activeNHNLChart === 'timeline' && (
+            <div className="bg-gray-900/50 rounded-lg p-4">
+              <svg width="100%" height="320" viewBox="0 0 900 320" preserveAspectRatio="xMidYMid meet">
+                {(() => {
+                  const padding = { left: 50, right: 30, top: 20, bottom: 50 };
+                  const chartWidth = 900 - padding.left - padding.right;
+                  const chartHeight = 250 - padding.top - padding.bottom;
+
+                  // Get all net values to find min/max
+                  const allNets = Object.values(sectorNetScores).flatMap(arr => arr.map(d => d.net));
+                  const maxNet = Math.max(...allNets, 1);
+                  const minNet = Math.min(...allNets, -1);
+                  const range = Math.max(Math.abs(maxNet), Math.abs(minNet));
+                  const yRange = range * 2;
+
+                  const days = sectorNetScores[SECTOR_ORDER[0]]?.map(d => d.date) || [];
+                  const xStep = days.length > 1 ? chartWidth / (days.length - 1) : chartWidth;
+
+                  const getX = (i: number) => padding.left + i * xStep;
+                  const getY = (val: number) => padding.top + chartHeight / 2 - (val / range) * (chartHeight / 2);
+
+                  return (
+                    <>
+                      {/* Y-axis grid lines and labels */}
+                      {[-range, -range / 2, 0, range / 2, range].map((val) => {
+                        const y = getY(val);
+                        return (
+                          <g key={`y-${val}`}>
+                            <line
+                              x1={padding.left}
+                              y1={y}
+                              x2={padding.left + chartWidth}
+                              y2={y}
+                              stroke={val === 0 ? '#555' : '#333'}
+                              strokeDasharray={val === 0 ? '0' : '2,2'}
+                            />
+                            <text x={padding.left - 8} y={y + 4} fill="#666" fontSize={11} textAnchor="end">
+                              {Math.round(val)}
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      {/* Y-axis label */}
+                      <text
+                        x={15}
+                        y={padding.top + chartHeight / 2}
+                        fill="#666"
+                        fontSize={10}
+                        textAnchor="middle"
+                        transform={`rotate(-90, 15, ${padding.top + chartHeight / 2})`}
+                      >
+                        Net (Highs - Lows)
+                      </text>
+
+                      {/* X-axis date labels */}
+                      {days.map((date, i) => (
+                        <g key={date}>
                           <line
-                            x1={padding.left}
-                            y1={y}
-                            x2={padding.left + dailyTotals.length * groupWidth}
-                            y2={y}
+                            x1={getX(i)}
+                            y1={padding.top}
+                            x2={getX(i)}
+                            y2={padding.top + chartHeight}
                             stroke="#333"
                             strokeDasharray="2,2"
                           />
-                        </g>
-                      );
-                    })}
-
-                    {/* Stacked Bars */}
-                    {dailyTotals.map((day, i) => {
-                      const x = padding.left + i * groupWidth + (groupWidth - barWidth) / 2;
-                      const total = day.nh + day.nl;
-                      const nhHeight = (day.nh / maxVal) * chartHeight;
-                      const nlHeight = (day.nl / maxVal) * chartHeight;
-                      const totalHeight = nhHeight + nlHeight;
-
-                      return (
-                        <g key={day.date}>
-                          {/* Green (NH) at bottom */}
-                          {day.nh > 0 && (
-                            <rect
-                              x={x}
-                              y={padding.top + chartHeight - nhHeight}
-                              width={barWidth}
-                              height={nhHeight}
-                              fill="#22c55e"
-                              rx={2}
-                            />
-                          )}
-                          {/* Red (NL) stacked on top */}
-                          {day.nl > 0 && (
-                            <rect
-                              x={x}
-                              y={padding.top + chartHeight - totalHeight}
-                              width={barWidth}
-                              height={nlHeight}
-                              fill="#ef4444"
-                              rx={day.nh === 0 ? 2 : 0}
-                              style={{ borderTopLeftRadius: 2, borderTopRightRadius: 2 }}
-                            />
-                          )}
-
-                          {/* Value labels inside bars */}
-                          {day.nh > 0 && nhHeight > 14 && (
-                            <text
-                              x={x + barWidth / 2}
-                              y={padding.top + chartHeight - nhHeight / 2 + 4}
-                              fill="white"
-                              fontSize={10}
-                              fontWeight="bold"
-                              textAnchor="middle"
-                            >
-                              {day.nh}
-                            </text>
-                          )}
-                          {day.nl > 0 && nlHeight > 14 && (
-                            <text
-                              x={x + barWidth / 2}
-                              y={padding.top + chartHeight - nhHeight - nlHeight / 2 + 4}
-                              fill="white"
-                              fontSize={10}
-                              fontWeight="bold"
-                              textAnchor="middle"
-                            >
-                              {day.nl}
-                            </text>
-                          )}
-
-                          {/* Total label on top of bar */}
-                          {total > 0 && (
-                            <text
-                              x={x + barWidth / 2}
-                              y={padding.top + chartHeight - totalHeight - 6}
-                              fill="#aaa"
-                              fontSize={10}
-                              textAnchor="middle"
-                            >
-                              {total}
-                            </text>
-                          )}
-
-                          {/* Date label */}
                           <text
-                            x={x + barWidth / 2}
-                            y={padding.top + chartHeight + 18}
+                            x={getX(i)}
+                            y={padding.top + chartHeight + 20}
                             fill="#888"
-                            fontSize={10}
+                            fontSize={11}
                             textAnchor="middle"
                           >
-                            {formatDate(day.date)}
+                            {formatDate(date)}
                           </text>
                         </g>
-                      );
-                    })}
-                  </>
-                );
-              })()}
-            </svg>
-            <div className="flex justify-center gap-6 mt-2 text-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-green-500 rounded"></div>
-                <span className="text-gray-400">New Highs</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-red-500 rounded"></div>
-                <span className="text-gray-400">New Lows</span>
+                      ))}
+
+                      {/* Lines for each sector */}
+                      {SECTOR_ORDER.map(sector => {
+                        const data = sectorNetScores[sector] || [];
+                        if (data.length === 0) return null;
+
+                        const pathD = data.map((d, i) => {
+                          const x = getX(i);
+                          const y = getY(d.net);
+                          return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`;
+                        }).join(' ');
+
+                        return (
+                          <g key={sector}>
+                            <path
+                              d={pathD}
+                              fill="none"
+                              stroke={sectorColors[sector]}
+                              strokeWidth={2}
+                            />
+                            {/* Data points */}
+                            {data.map((d, i) => (
+                              <circle
+                                key={`${sector}-${i}`}
+                                cx={getX(i)}
+                                cy={getY(d.net)}
+                                r={4}
+                                fill={sectorColors[sector]}
+                                stroke="#000"
+                                strokeWidth={1}
+                              />
+                            ))}
+                          </g>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
+              </svg>
+
+              {/* Legend sorted by cumulative score */}
+              <div className="flex justify-center gap-3 mt-4 flex-wrap">
+                {sectorCumulativeScores.map(({ sector, total }) => (
+                  <div key={sector} className="flex items-center gap-1.5 text-xs">
+                    <div
+                      className="w-3 h-3 rounded border border-gray-600"
+                      style={{ backgroundColor: sectorColors[sector] }}
+                    ></div>
+                    <span className="text-gray-400">
+                      {sector} ({total > 0 ? '+' : ''}{total})
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      {/* NH/NL History Table */}
-      {filteredHistoryDays.length > 0 && (
-        <div className="mt-8">
-          <h3 className="text-lg font-bold text-white mb-4">New Highs / New Lows by Sector (Last 15 Business Days)</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="text-left text-gray-400 py-2 px-2 sticky left-0 bg-black">Date</th>
-                  {SECTOR_ORDER.map(sector => (
-                    <th key={sector} className="text-center text-gray-400 py-2 px-1 min-w-[70px]">
-                      <div className="text-xs">{sector}</div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredHistoryDays.map((day, idx) => (
-                  <tr key={day.date} className={idx % 2 === 0 ? 'bg-gray-900/30' : ''}>
-                    <td className="text-gray-300 py-2 px-2 sticky left-0 bg-black font-medium">
-                      {formatDate(day.date)}
-                    </td>
-                    {SECTOR_ORDER.map(sector => {
-                      const sectorData = day.sectors[sector] || { nh: 0, nl: 0 };
-                      return (
-                        <td key={sector} className="text-center py-2 px-1">
-                          <div className="flex justify-center gap-1">
-                            <span className={`${sectorData.nh > 0 ? 'text-green-400' : 'text-gray-600'}`}>
-                              {sectorData.nh}
-                            </span>
-                            <span className="text-gray-600">/</span>
-                            <span className={`${sectorData.nl > 0 ? 'text-red-400' : 'text-gray-600'}`}>
-                              {sectorData.nl}
-                            </span>
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="text-xs text-gray-500 mt-2">
-            Format: <span className="text-green-400">NH</span> / <span className="text-red-400">NL</span> (New 15-Day Highs / New 15-Day Lows)
-          </div>
-        </div>
-      )}
 
       {/* Tooltip */}
       {tooltip && (
