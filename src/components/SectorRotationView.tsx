@@ -174,6 +174,33 @@ export function SectorRotationView() {
     return `${month}/${day}`;
   };
 
+  // Check if a date is a business day (Mon-Fri)
+  const isBusinessDay = (dateStr: string) => {
+    const date = new Date(dateStr + 'T00:00:00');
+    const day = date.getDay();
+    return day !== 0 && day !== 6; // 0=Sunday, 6=Saturday
+  };
+
+  // Filter history to business days only
+  const filteredHistoryDays = useMemo(() => {
+    return (nhnlHistory?.days || [])
+      .filter(day => isBusinessDay(day.date))
+      .slice(0, 15);
+  }, [nhnlHistory]);
+
+  // Calculate total NH/NL per day for the bar chart
+  const dailyTotals = useMemo(() => {
+    return filteredHistoryDays.map(day => {
+      let totalNH = 0;
+      let totalNL = 0;
+      Object.values(day.sectors).forEach((s: { nh: number; nl: number }) => {
+        totalNH += s.nh;
+        totalNL += s.nl;
+      });
+      return { date: day.date, nh: totalNH, nl: totalNL };
+    }).reverse(); // Oldest to newest for chart
+  }, [filteredHistoryDays]);
+
   if (loading && !data) {
     return (
       <div className="flex items-center justify-center h-96 bg-black">
@@ -206,9 +233,6 @@ export function SectorRotationView() {
   // Sort sectors by avgChange (highest to lowest, left to right)
   const sectors = [...data.sectors].sort((a, b) => b.avgChange - a.avgChange);
   const sectorWidth = (chartConfig.width - chartConfig.padding.left - chartConfig.padding.right) / sectors.length;
-
-  // Get last 15 days of NH/NL history
-  const historyDays = nhnlHistory?.days?.slice(0, 15) || [];
 
   return (
     <div ref={containerRef} className="bg-black rounded-lg p-4">
@@ -381,10 +405,129 @@ export function SectorRotationView() {
         </svg>
       </div>
 
-      {/* NH/NL History Table */}
-      {historyDays.length > 0 && (
+      {/* NH/NL Bar Chart */}
+      {dailyTotals.length > 0 && (
         <div className="mt-8">
-          <h3 className="text-lg font-bold text-white mb-4">New Highs / New Lows by Sector (Last 15 Days)</h3>
+          <h3 className="text-lg font-bold text-white mb-4">Daily New Highs vs New Lows</h3>
+          <div className="bg-gray-900/50 rounded-lg p-4">
+            <svg width="100%" height="200" viewBox={`0 0 ${Math.max(600, dailyTotals.length * 60)} 200`} preserveAspectRatio="xMidYMid meet">
+              {/* Calculate max value for scaling */}
+              {(() => {
+                const maxVal = Math.max(...dailyTotals.map(d => Math.max(d.nh, d.nl)), 1);
+                const barWidth = 20;
+                const groupWidth = 50;
+                const chartHeight = 150;
+                const padding = { left: 40, top: 10, bottom: 40 };
+
+                return (
+                  <>
+                    {/* Y-axis labels */}
+                    {[0, Math.round(maxVal / 2), maxVal].map((val, i) => {
+                      const y = padding.top + chartHeight - (val / maxVal) * chartHeight;
+                      return (
+                        <g key={`y-${i}`}>
+                          <text x={padding.left - 8} y={y + 4} fill="#666" fontSize={11} textAnchor="end">
+                            {val}
+                          </text>
+                          <line
+                            x1={padding.left}
+                            y1={y}
+                            x2={padding.left + dailyTotals.length * groupWidth}
+                            y2={y}
+                            stroke="#333"
+                            strokeDasharray="2,2"
+                          />
+                        </g>
+                      );
+                    })}
+
+                    {/* Bars */}
+                    {dailyTotals.map((day, i) => {
+                      const x = padding.left + i * groupWidth + 5;
+                      const nhHeight = (day.nh / maxVal) * chartHeight;
+                      const nlHeight = (day.nl / maxVal) * chartHeight;
+
+                      return (
+                        <g key={day.date}>
+                          {/* NH bar (green) */}
+                          <rect
+                            x={x}
+                            y={padding.top + chartHeight - nhHeight}
+                            width={barWidth}
+                            height={nhHeight}
+                            fill="#22c55e"
+                            opacity={0.8}
+                          />
+                          {/* NH value label */}
+                          {day.nh > 0 && (
+                            <text
+                              x={x + barWidth / 2}
+                              y={padding.top + chartHeight - nhHeight - 4}
+                              fill="#22c55e"
+                              fontSize={10}
+                              textAnchor="middle"
+                            >
+                              {day.nh}
+                            </text>
+                          )}
+
+                          {/* NL bar (red) */}
+                          <rect
+                            x={x + barWidth + 2}
+                            y={padding.top + chartHeight - nlHeight}
+                            width={barWidth}
+                            height={nlHeight}
+                            fill="#ef4444"
+                            opacity={0.8}
+                          />
+                          {/* NL value label */}
+                          {day.nl > 0 && (
+                            <text
+                              x={x + barWidth + 2 + barWidth / 2}
+                              y={padding.top + chartHeight - nlHeight - 4}
+                              fill="#ef4444"
+                              fontSize={10}
+                              textAnchor="middle"
+                            >
+                              {day.nl}
+                            </text>
+                          )}
+
+                          {/* Date label */}
+                          <text
+                            x={x + barWidth + 1}
+                            y={padding.top + chartHeight + 16}
+                            fill="#888"
+                            fontSize={10}
+                            textAnchor="middle"
+                          >
+                            {formatDate(day.date)}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </>
+                );
+              })()}
+            </svg>
+            <div className="flex justify-center gap-6 mt-2 text-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-green-500 rounded"></div>
+                <span className="text-gray-400">New Highs</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-red-500 rounded"></div>
+                <span className="text-gray-400">New Lows</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NH/NL History Table */}
+      {filteredHistoryDays.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-lg font-bold text-white mb-4">New Highs / New Lows by Sector (Last 15 Business Days)</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -398,7 +541,7 @@ export function SectorRotationView() {
                 </tr>
               </thead>
               <tbody>
-                {historyDays.map((day, idx) => (
+                {filteredHistoryDays.map((day, idx) => (
                   <tr key={day.date} className={idx % 2 === 0 ? 'bg-gray-900/30' : ''}>
                     <td className="text-gray-300 py-2 px-2 sticky left-0 bg-black font-medium">
                       {formatDate(day.date)}

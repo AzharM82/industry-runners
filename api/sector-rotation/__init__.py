@@ -9,6 +9,7 @@ import urllib.request
 # Import shared cache module
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.cache import get_cached, set_cached
+from shared.timezone import today_pst, now_pst
 
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
 POLYGON_BASE_URL = 'https://api.polygon.io'
@@ -53,15 +54,15 @@ def is_market_open() -> bool:
     return market_open <= now_et <= market_close
 
 
-def get_today_date_et() -> str:
-    """Get today's date in ET timezone as YYYY-MM-DD"""
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
+def get_today_date_pst() -> str:
+    """Get today's date in PST timezone as YYYY-MM-DD (consistent with breadth indicators)"""
+    return today_pst()
 
-    et_tz = ZoneInfo('America/New_York')
-    return datetime.now(et_tz).strftime('%Y-%m-%d')
+
+def is_business_day(date_str: str) -> bool:
+    """Check if a date string (YYYY-MM-DD) is a business day (Mon-Fri)"""
+    date = datetime.strptime(date_str, '%Y-%m-%d')
+    return date.weekday() < 5  # 0-4 are Mon-Fri
 
 
 def polygon_request(endpoint: str, timeout: int = 15) -> dict:
@@ -146,7 +147,12 @@ def get_15day_high_low(symbols: list) -> dict:
 
 
 def save_daily_nh_nl(sectors_data: list, date_str: str):
-    """Save daily New Highs/New Lows data to cache"""
+    """Save daily New Highs/New Lows data to cache (business days only)"""
+    # Don't save weekend data
+    if not is_business_day(date_str):
+        logging.info(f"Skipping NH/NL save for weekend date: {date_str}")
+        return
+
     history_key = "sector-rotation:nh-nl-history"
     history = get_cached(history_key) or {'days': []}
 
@@ -169,7 +175,8 @@ def save_daily_nh_nl(sectors_data: list, date_str: str):
     else:
         history['days'].append(day_data)
 
-    # Keep only last 20 days
+    # Filter to business days only and keep last 20
+    history['days'] = [d for d in history['days'] if is_business_day(d['date'])]
     history['days'] = sorted(history['days'], key=lambda x: x['date'], reverse=True)[:20]
 
     # Cache for 30 days
@@ -177,9 +184,18 @@ def save_daily_nh_nl(sectors_data: list, date_str: str):
 
 
 def get_nh_nl_history() -> dict:
-    """Get NH/NL history from cache"""
+    """Get NH/NL history from cache (filtered to business days only)"""
     history_key = "sector-rotation:nh-nl-history"
-    return get_cached(history_key) or {'days': []}
+    history = get_cached(history_key) or {'days': []}
+
+    # Filter to business days only and exclude future dates
+    today = today_pst()
+    history['days'] = [
+        d for d in history['days']
+        if is_business_day(d['date']) and d['date'] <= today
+    ]
+
+    return history
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
@@ -323,10 +339,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 'newLows': new_lows
             })
 
-        today_date = get_today_date_et()
+        today_date = get_today_date_pst()
 
         response_data = {
-            'timestamp': int(datetime.now().timestamp() * 1000),
+            'timestamp': int(now_pst().timestamp() * 1000),
             'date': today_date,
             'sectors': sectors_data,
             'cached': False,
