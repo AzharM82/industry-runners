@@ -120,6 +120,10 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/api/test-webhook-sync",
+      "allowedRoles": ["authenticated"]
+    },
+    {
       "route": "/api/stripe-webhook",
       "allowedRoles": ["anonymous"]
     },
