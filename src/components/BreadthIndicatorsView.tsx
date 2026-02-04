@@ -369,13 +369,13 @@ export function BreadthIndicatorsView() {
   // Build history list: combine today's live data with historical data, filter to business days only
   const buildRealtimeHistory = () => {
     const items: { date: string; data: BreadthData }[] = [];
-    const todayStr = getTodayDateStr();
     const seenDates = new Set<string>();
 
-    // Add today's live data first (if it's a business day)
-    if (breadthData && isBusinessDay(todayStr)) {
-      items.push({ date: todayStr, data: breadthData });
-      seenDates.add(todayStr);
+    // Add today's live data first (use server's date, not frontend calculation)
+    // This ensures consistency between server PST and what we display
+    if (breadthData?.date && isBusinessDay(breadthData.date) && !isFutureDate(breadthData.date)) {
+      items.push({ date: breadthData.date, data: breadthData });
+      seenDates.add(breadthData.date);
     }
 
     // Add historical data from Redis (excluding duplicates, weekends, and future dates)
@@ -397,13 +397,13 @@ export function BreadthIndicatorsView() {
   // Build Finviz history list
   const buildFinvizHistory = () => {
     const items: { date: string; data: FinvizBreadthData }[] = [];
-    const todayStr = getTodayDateStr();
     const seenDates = new Set<string>();
 
-    // Add today's live Finviz data first (if it's a business day)
-    if (finvizData && isBusinessDay(todayStr)) {
-      items.push({ date: todayStr, data: finvizData });
-      seenDates.add(todayStr);
+    // Add today's live Finviz data first (use server's date, not frontend calculation)
+    // This ensures consistency between server PST and what we display
+    if (finvizData?.date && isBusinessDay(finvizData.date) && !isFutureDate(finvizData.date)) {
+      items.push({ date: finvizData.date, data: finvizData });
+      seenDates.add(finvizData.date);
     }
 
     // Add historical data from Redis (excluding duplicates, weekends, and future dates)
