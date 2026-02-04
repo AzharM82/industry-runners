@@ -12,30 +12,38 @@ PST_OFFSET_HOURS = -8
 PDT_OFFSET_HOURS = -7
 
 
-def is_dst(dt: datetime = None) -> bool:
+def is_dst(utc_dt: datetime = None) -> bool:
     """
-    Check if a given date is in Daylight Saving Time (PDT).
-    DST in US: Second Sunday of March to First Sunday of November.
+    Check if a given UTC datetime falls within US Pacific Daylight Time (PDT).
+    DST in US: Second Sunday of March 2AM PST to First Sunday of November 2AM PDT.
+
+    Args:
+        utc_dt: A UTC datetime. If None, uses current UTC time.
+
+    Returns:
+        True if PDT is in effect, False if PST.
     """
-    if dt is None:
-        dt = datetime.utcnow()
+    if utc_dt is None:
+        utc_dt = datetime.utcnow()
 
-    year = dt.year
+    year = utc_dt.year
 
-    # Second Sunday of March
+    # Second Sunday of March at 2 AM PST = 10 AM UTC
     march_start = datetime(year, 3, 1)
     days_to_sunday = (6 - march_start.weekday()) % 7
     second_sunday_march = march_start + timedelta(days=days_to_sunday + 7)
-    dst_start = second_sunday_march.replace(hour=2)  # 2 AM local time
+    # DST starts at 2 AM PST = 10 AM UTC (PST is UTC-8)
+    dst_start_utc = second_sunday_march.replace(hour=10, minute=0, second=0)
 
-    # First Sunday of November
+    # First Sunday of November at 2 AM PDT = 9 AM UTC
     november_start = datetime(year, 11, 1)
     days_to_sunday = (6 - november_start.weekday()) % 7
     first_sunday_november = november_start + timedelta(days=days_to_sunday)
-    dst_end = first_sunday_november.replace(hour=2)  # 2 AM local time
+    # DST ends at 2 AM PDT = 9 AM UTC (PDT is UTC-7)
+    dst_end_utc = first_sunday_november.replace(hour=9, minute=0, second=0)
 
-    # Check if we're in DST period
-    return dst_start <= dt < dst_end
+    # Check if we're in DST period (comparing UTC to UTC)
+    return dst_start_utc <= utc_dt < dst_end_utc
 
 
 def get_pst_offset() -> int:

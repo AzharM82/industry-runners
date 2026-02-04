@@ -19,13 +19,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     try:
         client = get_redis_client()
 
+        utc_now = datetime.utcnow()
+        pst_now = now_pst()
+
         result = {
             'timezone_info': {
-                'utc_now': datetime.utcnow().isoformat(),
-                'pst_now': now_pst().isoformat(),
-                'today_pst': today_pst(),
+                'utc_now': utc_now.isoformat(),
+                'utc_date': utc_now.strftime('%Y-%m-%d'),
+                'pst_now': pst_now.isoformat(),
+                'pst_date': pst_now.strftime('%Y-%m-%d'),
+                'today_pst_func': today_pst(),
                 'is_dst': is_dst(),
-                'pst_offset': get_pst_offset()
+                'pst_offset_hours': get_pst_offset(),
+                'explanation': f"UTC {utc_now.strftime('%H:%M')} -> PST {pst_now.strftime('%H:%M')} (offset {get_pst_offset()}h)"
             },
             'redis_connected': client is not None,
             'daily_history': [],
