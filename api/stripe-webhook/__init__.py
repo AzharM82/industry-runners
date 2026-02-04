@@ -115,56 +115,78 @@ def sync_subscription_from_stripe(user_id: str, email: str, subscription_id: str
     Sync a subscription from Stripe to our database.
     This is the central function that ensures subscription state is correct.
     """
+    logging.info(f"sync_subscription_from_stripe started")
+
     try:
         # Get subscription details from Stripe
+        logging.info(f"  Step 1: Retrieving subscription from Stripe: {subscription_id}")
         stripe_sub = stripe.Subscription.retrieve(subscription_id)
-        
+        logging.info(f"  Step 1 SUCCESS: Retrieved subscription, status={stripe_sub.status}")
+
         # Update stripe customer ID on the user
         if customer_id and email:
+            logging.info(f"  Step 2: Updating stripe_customer_id for {email}")
             update_user_stripe_customer(email, customer_id)
-        
+            logging.info(f"  Step 2 SUCCESS: Updated stripe_customer_id to {customer_id}")
+
         # Check if subscription already exists
+        logging.info(f"  Step 3: Checking if subscription exists in DB")
         existing = get_subscription_by_stripe_id(subscription_id)
-        
+
         if existing:
             # Update existing subscription
+            logging.info(f"  Step 3: Subscription exists, updating...")
             update_subscription(
                 stripe_subscription_id=subscription_id,
                 status=stripe_sub.status,
                 period_end=stripe_sub.current_period_end,
                 cancel_at_period_end=stripe_sub.cancel_at_period_end
             )
-            logging.info(f"Updated existing subscription {subscription_id} - status: {stripe_sub.status}")
+            logging.info(f"  Step 3 SUCCESS: Updated existing subscription {subscription_id} - status: {stripe_sub.status}")
         else:
             # Delete any trial subscriptions for this user first
+            logging.info(f"  Step 3: Subscription does NOT exist, creating new...")
+            logging.info(f"  Step 4: Deleting trial subscriptions for user {user_id}")
             from shared.database import get_connection
             conn = get_connection()
             cur = conn.cursor()
             cur.execute("""
-                DELETE FROM subscriptions 
+                DELETE FROM subscriptions
                 WHERE user_id = %s AND stripe_subscription_id LIKE 'trial_%%'
             """, (user_id,))
             deleted_trials = cur.rowcount
-            if deleted_trials > 0:
-                logging.info(f"Deleted {deleted_trials} trial subscription(s) for user {user_id}")
             conn.commit()
             cur.close()
             conn.close()
-            
+            logging.info(f"  Step 4 SUCCESS: Deleted {deleted_trials} trial subscription(s)")
+
             # Create new subscription
-            create_subscription(
+            logging.info(f"  Step 5: Creating subscription in database")
+            logging.info(f"    user_id: {user_id}")
+            logging.info(f"    stripe_subscription_id: {subscription_id}")
+            logging.info(f"    status: {stripe_sub.status}")
+            logging.info(f"    period_start: {stripe_sub.current_period_start}")
+            logging.info(f"    period_end: {stripe_sub.current_period_end}")
+
+            result = create_subscription(
                 user_id=user_id,
                 stripe_subscription_id=subscription_id,
                 status=stripe_sub.status,
                 period_start=stripe_sub.current_period_start,
                 period_end=stripe_sub.current_period_end
             )
-            logging.info(f"Created subscription {subscription_id} for user {user_id} - status: {stripe_sub.status}")
-        
+
+            if result:
+                logging.info(f"  Step 5 SUCCESS: Created subscription {subscription_id} for user {user_id}")
+            else:
+                logging.error(f"  Step 5 FAILED: create_subscription returned None/False")
+                return False
+
+        logging.info(f"sync_subscription_from_stripe completed successfully")
         return True
-        
+
     except Exception as e:
-        logging.error(f"Error syncing subscription {subscription_id}: {e}")
+        logging.error(f"sync_subscription_from_stripe FAILED: {e}")
         import traceback
         logging.error(traceback.format_exc())
         return False
@@ -173,6 +195,12 @@ def sync_subscription_from_stripe(user_id: str, email: str, subscription_id: str
 def handle_checkout_completed(session):
     """Handle successful checkout - create subscription immediately using metadata."""
     customer_email = (session.get('customer_email') or '').lower().strip()
+
+    # Also try customer_details.email as fallback
+    if not customer_email:
+        customer_details = session.get('customer_details', {})
+        customer_email = (customer_details.get('email') or '').lower().strip()
+
     customer_id = session.get('customer')
     subscription_id = session.get('subscription')
     metadata = session.get('metadata', {})
@@ -182,8 +210,12 @@ def handle_checkout_completed(session):
     metadata_email = (metadata.get('user_email') or '').lower().strip()
 
     logging.info(f"=== CHECKOUT COMPLETED ===")
-    logging.info(f"customer_email={customer_email}, customer={customer_id}, sub={subscription_id}")
-    logging.info(f"metadata={metadata}")
+    logging.info(f"  customer_email: {customer_email}")
+    logging.info(f"  customer_id: {customer_id}")
+    logging.info(f"  subscription_id: {subscription_id}")
+    logging.info(f"  metadata_user_id: {metadata_user_id}")
+    logging.info(f"  metadata_email: {metadata_email}")
+    logging.info(f"  full_metadata: {metadata}")
 
     # Use metadata email if customer_email not available
     email = customer_email or metadata_email
@@ -234,11 +266,23 @@ def handle_checkout_completed(session):
 
     # Sync the subscription
     if subscription_id:
+        logging.info(f"Calling sync_subscription_from_stripe:")
+        logging.info(f"  user_id: {user_id}")
+        logging.info(f"  email: {email}")
+        logging.info(f"  subscription_id: {subscription_id}")
+        logging.info(f"  customer_id: {customer_id}")
+
         success = sync_subscription_from_stripe(user_id, email, subscription_id, customer_id)
+
         if success:
-            logging.info(f"=== CHECKOUT COMPLETED SUCCESSFULLY for {email} ===")
+            logging.info(f"=== CHECKOUT COMPLETED SUCCESSFULLY ===")
+            logging.info(f"  email: {email}")
+            logging.info(f"  subscription_id: {subscription_id}")
         else:
-            logging.error(f"=== CHECKOUT FAILED for {email} ===")
+            logging.error(f"=== CHECKOUT FAILED ===")
+            logging.error(f"  email: {email}")
+            logging.error(f"  subscription_id: {subscription_id}")
+            logging.error(f"  sync_subscription_from_stripe returned False")
     else:
         logging.warning(f"No subscription_id in checkout session for {email}")
 
