@@ -562,7 +562,6 @@ export function SectorRotationView() {
                   const maxNet = Math.max(...allNets, 1);
                   const minNet = Math.min(...allNets, -1);
                   const range = Math.max(Math.abs(maxNet), Math.abs(minNet));
-                  const yRange = range * 2;
 
                   const days = sectorNetScores[SECTOR_ORDER[0]]?.map(d => d.date) || [];
                   const xStep = days.length > 1 ? chartWidth / (days.length - 1) : chartWidth;

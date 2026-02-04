@@ -5,11 +5,6 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   build: {
-    // Minification provides sufficient protection for most cases
-    minify: 'terser',
-    terserOptions: {
-      mangle: true,
-      compress: true
-    }
+    minify: 'esbuild'
   }
 })
