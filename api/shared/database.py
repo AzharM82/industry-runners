@@ -211,18 +211,54 @@ def get_subscription_by_stripe_id(stripe_subscription_id: str):
 
 def create_subscription(user_id: str, stripe_subscription_id: str, status: str, period_start, period_end):
     """Create a new subscription."""
-    conn = get_connection()
-    cur = get_cursor(conn)
-    cur.execute("""
-        INSERT INTO subscriptions (user_id, stripe_subscription_id, status, current_period_start, current_period_end)
-        VALUES (%s, %s, %s, to_timestamp(%s), to_timestamp(%s))
-        RETURNING *
-    """, (user_id, stripe_subscription_id, status, period_start, period_end))
-    sub = cur.fetchone()
-    conn.commit()
-    cur.close()
-    conn.close()
-    return dict(sub) if sub else None
+    import logging
+
+    logging.info(f"create_subscription called:")
+    logging.info(f"  user_id: {user_id}")
+    logging.info(f"  stripe_subscription_id: {stripe_subscription_id}")
+    logging.info(f"  status: {status}")
+    logging.info(f"  period_start: {period_start} (type: {type(period_start).__name__})")
+    logging.info(f"  period_end: {period_end} (type: {type(period_end).__name__})")
+
+    # Validate inputs
+    if not user_id or not stripe_subscription_id:
+        logging.error("create_subscription: Missing required fields")
+        return None
+
+    # Handle None timestamps - use current time as fallback
+    from datetime import datetime
+    if period_start is None:
+        period_start = int(datetime.utcnow().timestamp())
+        logging.warning(f"period_start was None, using current time: {period_start}")
+    if period_end is None:
+        period_end = int(datetime.utcnow().timestamp()) + (30 * 24 * 60 * 60)  # 30 days
+        logging.warning(f"period_end was None, using 30 days from now: {period_end}")
+
+    try:
+        conn = get_connection()
+        cur = get_cursor(conn)
+        cur.execute("""
+            INSERT INTO subscriptions (user_id, stripe_subscription_id, status, current_period_start, current_period_end)
+            VALUES (%s, %s, %s, to_timestamp(%s), to_timestamp(%s))
+            RETURNING *
+        """, (user_id, stripe_subscription_id, status, period_start, period_end))
+        sub = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        if sub:
+            logging.info(f"create_subscription SUCCESS: Created subscription {stripe_subscription_id}")
+            return dict(sub)
+        else:
+            logging.error("create_subscription: INSERT succeeded but no row returned")
+            return None
+
+    except Exception as e:
+        logging.error(f"create_subscription FAILED: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return None
 
 def update_subscription(stripe_subscription_id: str, status: str, period_end, cancel_at_period_end: bool = False):
     """Update subscription status."""
