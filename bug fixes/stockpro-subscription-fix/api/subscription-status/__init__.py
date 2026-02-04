@@ -53,80 +53,62 @@ def json_serializer(obj):
     raise TypeError(f"Type {type(obj)} not serializable")
 
 
-def auto_sync_stripe_subscription(email: str, user_id: str) -> tuple:
+def auto_sync_stripe_subscription(email: str, user_id: str) -> dict:
     """
     Automatically sync subscription from Stripe if not found locally.
     This fixes the race condition where webhook hasn't processed yet.
-    Returns tuple of (subscription_dict, debug_info) - subscription is None if not found.
+    Returns the subscription dict if found and synced, None otherwise.
     """
-    debug_info = {'email': email, 'user_id': user_id}
-
     if not stripe.api_key:
         logging.warning("Stripe API key not configured, cannot auto-sync")
-        debug_info['error'] = 'Stripe API key not configured'
-        return None, debug_info
-
+        return None
+    
     try:
         # Find customer in Stripe by email
         customers = stripe.Customer.list(email=email, limit=1)
         if not customers.data:
             logging.info(f"No Stripe customer found for {email}")
-            debug_info['stripe_customer'] = None
-            debug_info['error'] = f'No Stripe customer found for email: {email}'
-            return None, debug_info
-
+            return None
+        
         customer = customers.data[0]
         customer_id = customer.id
-        debug_info['stripe_customer_id'] = customer_id
-        debug_info['stripe_customer_email'] = customer.email
         logging.info(f"Found Stripe customer {customer_id} for {email}")
-
+        
         # Update stripe customer ID on user
         update_user_stripe_customer(email, customer_id)
-
+        
         # Find active/trialing subscriptions
         subscriptions = stripe.Subscription.list(customer=customer_id, status='active', limit=1)
         if not subscriptions.data:
             subscriptions = stripe.Subscription.list(customer=customer_id, status='trialing', limit=1)
-
+        
         if not subscriptions.data:
-            # Check for ANY subscriptions to see status
-            all_subs = stripe.Subscription.list(customer=customer_id, limit=5)
-            if all_subs.data:
-                debug_info['all_subscription_statuses'] = [s.status for s in all_subs.data]
-            else:
-                debug_info['all_subscription_statuses'] = []
             logging.info(f"No active subscription found in Stripe for {email}")
-            debug_info['error'] = 'No active/trialing subscription found'
-            return None, debug_info
-
+            return None
+        
         stripe_sub = subscriptions.data[0]
-        debug_info['stripe_subscription_id'] = stripe_sub.id
-        debug_info['stripe_subscription_status'] = stripe_sub.status
         logging.info(f"Found Stripe subscription {stripe_sub.id} with status {stripe_sub.status}")
-
+        
         # Check if subscription already exists in our DB
         existing = get_subscription_by_stripe_id(stripe_sub.id)
         if existing:
             logging.info(f"Subscription {stripe_sub.id} already exists in DB")
-            debug_info['action'] = 'found_existing'
-            return existing, debug_info
-
+            return existing
+        
         # Delete any trial subscriptions for this user
         conn = get_connection()
         cur = conn.cursor()
         cur.execute("""
-            DELETE FROM subscriptions
+            DELETE FROM subscriptions 
             WHERE user_id = %s AND stripe_subscription_id LIKE 'trial_%%'
         """, (user_id,))
         deleted_trials = cur.rowcount
         if deleted_trials > 0:
             logging.info(f"Deleted {deleted_trials} trial subscription(s) during auto-sync")
-            debug_info['deleted_trials'] = deleted_trials
         conn.commit()
         cur.close()
         conn.close()
-
+        
         # Create the subscription in our database
         new_sub = create_subscription(
             user_id=user_id,
@@ -135,18 +117,15 @@ def auto_sync_stripe_subscription(email: str, user_id: str) -> tuple:
             period_start=stripe_sub.current_period_start,
             period_end=stripe_sub.current_period_end
         )
-
-        debug_info['action'] = 'created_new'
+        
         logging.info(f"AUTO-SYNCED subscription {stripe_sub.id} for {email} (user_id={user_id})")
-        return new_sub, debug_info
-
+        return new_sub
+        
     except Exception as e:
         logging.error(f"Error auto-syncing subscription for {email}: {e}")
         import traceback
         logging.error(traceback.format_exc())
-        debug_info['error'] = str(e)
-        debug_info['traceback'] = traceback.format_exc()
-        return None, debug_info
+        return None
 
 
 def get_daily_report(date: str = None):
@@ -441,7 +420,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         user_id = str(user['id'])
-        sync_debug = None
 
         # Get subscription from local database
         subscription = get_subscription(user_id)
@@ -451,7 +429,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # This fixes the race condition where webhook hasn't processed yet
         if not subscription:
             logging.info(f"No local subscription for {user_email}, attempting auto-sync from Stripe...")
-            synced_sub, sync_debug = auto_sync_stripe_subscription(user_email, user_id)
+            synced_sub = auto_sync_stripe_subscription(user_email, user_id)
             if synced_sub:
                 # Re-fetch the subscription to get proper format
                 subscription = get_subscription(user_id)
@@ -499,9 +477,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Add reason if no access
         if not has_access:
             response['reason'] = 'No active subscription. Please subscribe to continue.'
-            # Include debug info to help diagnose sync issues
-            if sync_debug:
-                response['sync_debug'] = sync_debug
 
         # Add trial message if on trial
         if subscription and (subscription.get('stripe_subscription_id') or '').startswith('trial_'):

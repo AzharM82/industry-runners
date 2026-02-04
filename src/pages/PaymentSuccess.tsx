@@ -2,10 +2,21 @@ import { useEffect, useState } from 'react';
 
 type Status = 'checking' | 'syncing' | 'success' | 'auth-required' | 'error';
 
+interface SyncDebug {
+  email?: string;
+  stripe_customer_id?: string;
+  stripe_customer_email?: string;
+  stripe_subscription_id?: string;
+  stripe_subscription_status?: string;
+  all_subscription_statuses?: string[];
+  error?: string;
+}
+
 export function PaymentSuccess() {
   const [status, setStatus] = useState<Status>('checking');
   const [retryCount, setRetryCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [syncDebug, setSyncDebug] = useState<SyncDebug | null>(null);
   const MAX_RETRIES = 10; // Try for up to 30 seconds (10 retries * 3 seconds)
 
   useEffect(() => {
@@ -49,13 +60,19 @@ export function PaymentSuccess() {
           }, 1500);
         } else if (retryCount < MAX_RETRIES) {
           // Subscription not synced yet, retry after delay
-          console.log(`Subscription not found, retrying... (${retryCount + 1}/${MAX_RETRIES})`);
+          console.log(`Subscription not found, retrying... (${retryCount + 1}/${MAX_RETRIES})`, subData.sync_debug);
+          if (subData.sync_debug) {
+            setSyncDebug(subData.sync_debug);
+          }
           setRetryCount(prev => prev + 1);
           setTimeout(verifyAndRedirect, 3000);
         } else {
           // Max retries exceeded
           setStatus('error');
-          setErrorMessage('Subscription sync is taking longer than expected. Please try refreshing or contact support.');
+          if (subData.sync_debug) {
+            setSyncDebug(subData.sync_debug);
+          }
+          setErrorMessage(subData.sync_debug?.error || 'Subscription sync is taking longer than expected. Please try refreshing or contact support.');
         }
       } catch (error) {
         console.error('Error verifying subscription:', error);
@@ -129,12 +146,29 @@ export function PaymentSuccess() {
             </div>
             <h1 className="text-2xl font-bold text-white mb-2">Taking Longer Than Expected</h1>
             <p className="text-gray-400 mb-4">{errorMessage}</p>
+
+            {syncDebug && (
+              <div className="bg-gray-900 rounded-lg p-4 mb-4 text-left text-xs font-mono overflow-x-auto">
+                <div className="text-gray-500 mb-2">Debug Info:</div>
+                {syncDebug.email && <div className="text-gray-400">Auth Email: {syncDebug.email}</div>}
+                {syncDebug.stripe_customer_id && <div className="text-green-400">Stripe Customer: {syncDebug.stripe_customer_id}</div>}
+                {syncDebug.stripe_customer_email && <div className="text-gray-400">Stripe Email: {syncDebug.stripe_customer_email}</div>}
+                {syncDebug.stripe_subscription_id && <div className="text-green-400">Subscription: {syncDebug.stripe_subscription_id}</div>}
+                {syncDebug.stripe_subscription_status && <div className="text-gray-400">Status: {syncDebug.stripe_subscription_status}</div>}
+                {syncDebug.all_subscription_statuses && syncDebug.all_subscription_statuses.length > 0 && (
+                  <div className="text-yellow-400">All Statuses: {syncDebug.all_subscription_statuses.join(', ')}</div>
+                )}
+                {syncDebug.error && <div className="text-red-400">Error: {syncDebug.error}</div>}
+              </div>
+            )}
+
             <div className="space-y-3">
               <button
                 onClick={() => {
                   setRetryCount(0);
                   setStatus('checking');
                   setErrorMessage(null);
+                  setSyncDebug(null);
                 }}
                 className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors"
               >
