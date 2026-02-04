@@ -136,11 +136,13 @@ def sync_subscription_from_stripe(user_id: str, email: str, subscription_id: str
         if existing:
             # Update existing subscription
             logging.info(f"  Step 3: Subscription exists, updating...")
+            period_end = getattr(stripe_sub, 'current_period_end', None) or stripe_sub.get('current_period_end')
+            cancel_at = getattr(stripe_sub, 'cancel_at_period_end', False) or stripe_sub.get('cancel_at_period_end', False)
             update_subscription(
                 stripe_subscription_id=subscription_id,
                 status=stripe_sub.status,
-                period_end=stripe_sub.current_period_end,
-                cancel_at_period_end=stripe_sub.cancel_at_period_end
+                period_end=period_end,
+                cancel_at_period_end=cancel_at
             )
             logging.info(f"  Step 3 SUCCESS: Updated existing subscription {subscription_id} - status: {stripe_sub.status}")
         else:
@@ -161,19 +163,23 @@ def sync_subscription_from_stripe(user_id: str, email: str, subscription_id: str
             logging.info(f"  Step 4 SUCCESS: Deleted {deleted_trials} trial subscription(s)")
 
             # Create new subscription
+            # Get period timestamps - handle both attribute and dict access for different Stripe SDK versions
+            period_start = getattr(stripe_sub, 'current_period_start', None) or stripe_sub.get('current_period_start')
+            period_end = getattr(stripe_sub, 'current_period_end', None) or stripe_sub.get('current_period_end')
+
             logging.info(f"  Step 5: Creating subscription in database")
             logging.info(f"    user_id: {user_id}")
             logging.info(f"    stripe_subscription_id: {subscription_id}")
             logging.info(f"    status: {stripe_sub.status}")
-            logging.info(f"    period_start: {stripe_sub.current_period_start}")
-            logging.info(f"    period_end: {stripe_sub.current_period_end}")
+            logging.info(f"    period_start: {period_start}")
+            logging.info(f"    period_end: {period_end}")
 
             result = create_subscription(
                 user_id=user_id,
                 stripe_subscription_id=subscription_id,
                 status=stripe_sub.status,
-                period_start=stripe_sub.current_period_start,
-                period_end=stripe_sub.current_period_end
+                period_start=period_start,
+                period_end=period_end
             )
 
             if result:

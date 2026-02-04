@@ -128,12 +128,16 @@ def auto_sync_stripe_subscription(email: str, user_id: str) -> tuple:
         conn.close()
 
         # Create the subscription in our database
+        # Get period timestamps - handle both attribute and dict access for different Stripe SDK versions
+        period_start = getattr(stripe_sub, 'current_period_start', None) or stripe_sub.get('current_period_start')
+        period_end = getattr(stripe_sub, 'current_period_end', None) or stripe_sub.get('current_period_end')
+
         new_sub = create_subscription(
             user_id=user_id,
             stripe_subscription_id=stripe_sub.id,
             status=stripe_sub.status,
-            period_start=stripe_sub.current_period_start,
-            period_end=stripe_sub.current_period_end
+            period_start=period_start,
+            period_end=period_end
         )
 
         debug_info['action'] = 'created_new'

@@ -137,12 +137,17 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         # Step 8: Create subscription
         try:
+            # Get period timestamps - handle both attribute and dict access
+            period_start = getattr(stripe_sub, 'current_period_start', None) or stripe_sub.get('current_period_start')
+            period_end = getattr(stripe_sub, 'current_period_end', None) or stripe_sub.get('current_period_end')
+            steps.append(f"8b. Period start: {period_start}, end: {period_end}")
+
             new_sub = create_subscription(
                 user_id=user_id,
                 stripe_subscription_id=stripe_sub.id,
                 status=stripe_sub.status,
-                period_start=stripe_sub.current_period_start,
-                period_end=stripe_sub.current_period_end
+                period_start=period_start,
+                period_end=period_end
             )
             steps.append(f"9. Created subscription: {new_sub}")
         except Exception as e:
