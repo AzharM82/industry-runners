@@ -68,6 +68,10 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/payment-success",
+      "allowedRoles": ["anonymous", "authenticated"]
+    },
+    {
       "route": "/api/health-check",
       "allowedRoles": ["authenticated"]
     },

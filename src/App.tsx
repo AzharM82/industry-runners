@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LandingPage, LoginPage, Dashboard, AdminDashboard, AdminSystemInfo, AdminHealthCheck } from './pages';
+import { PaymentSuccess } from './pages/PaymentSuccess';
 import { useAuth, login } from './hooks';
 
 function App() {
@@ -78,6 +79,12 @@ function App() {
         <Route
           path="/admin/health"
           element={<AdminHealthCheck />}
+        />
+
+        {/* Payment Success page - handles subscription sync after Stripe checkout */}
+        <Route
+          path="/payment-success"
+          element={<PaymentSuccess />}
         />
 
         {/* Catch-all redirect */}

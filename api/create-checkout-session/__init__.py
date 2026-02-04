@@ -97,7 +97,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 'price': STRIPE_PRICE_ID,
                 'quantity': 1,
             }],
-            success_url=f"{SITE_URL}/dashboard?success=true",
+            success_url=f"{SITE_URL}/payment-success",
             cancel_url=f"{SITE_URL}/dashboard?cancelled=true",
             metadata={
                 'user_id': str(user['id']),
