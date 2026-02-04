@@ -17,7 +17,14 @@ import {
   Clock,
   Phone,
   X,
-  Filter
+  Filter,
+  Database,
+  Wrench,
+  Play,
+  CheckCircle,
+  AlertCircle,
+  TrendingUp,
+  BarChart3
 } from 'lucide-react';
 
 interface DailyReport {
@@ -64,8 +71,45 @@ export function AdminDashboard() {
   const [selectedDate, setSelectedDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
   });
-  const [activeTab, setActiveTab] = useState<'daily' | 'users'>('daily');
+  const [activeTab, setActiveTab] = useState<'daily' | 'users' | 'tools'>('daily');
   const [refreshing, setRefreshing] = useState(false);
+
+  // Data Tools state
+  const [toolDate, setToolDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [toolResults, setToolResults] = useState<Record<string, { status: 'idle' | 'loading' | 'success' | 'error'; message?: string }>>({});
+
+  const runDataTool = async (toolKey: string, url: string) => {
+    setToolResults(prev => ({ ...prev, [toolKey]: { status: 'loading' } }));
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      if (response.ok) {
+        setToolResults(prev => ({
+          ...prev,
+          [toolKey]: {
+            status: 'success',
+            message: data.message || data.success ? 'Completed successfully' : JSON.stringify(data).slice(0, 200)
+          }
+        }));
+      } else {
+        setToolResults(prev => ({
+          ...prev,
+          [toolKey]: {
+            status: 'error',
+            message: data.error || 'Request failed'
+          }
+        }));
+      }
+    } catch (err) {
+      setToolResults(prev => ({
+        ...prev,
+        [toolKey]: {
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Network error'
+        }
+      }));
+    }
+  };
 
   // Filter state for Users tab
   const [statusFilter, setStatusFilter] = useState<'active' | 'trialing' | 'none' | null>(null);
@@ -295,6 +339,17 @@ export function AdminDashboard() {
             }`}
           >
             All Users ({users.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('tools')}
+            className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${
+              activeTab === 'tools'
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-400 hover:text-white hover:bg-gray-800'
+            }`}
+          >
+            <Wrench className="w-4 h-4" />
+            Data Tools
           </button>
         </div>
 
@@ -710,6 +765,267 @@ export function AdminDashboard() {
               </table>
             </div>
           </div>
+          </>
+        )}
+
+        {activeTab === 'tools' && (
+          <>
+            {/* Date Selector for Tools */}
+            <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+              <div className="flex items-center gap-4">
+                <Calendar className="w-5 h-5 text-blue-400" />
+                <span className="text-gray-400">Target Date:</span>
+                <input
+                  type="date"
+                  value={toolDate}
+                  onChange={(e) => setToolDate(e.target.value)}
+                  className="bg-gray-700 text-white px-3 py-1.5 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                />
+                <span className="text-gray-500 text-sm">Used for date-specific operations</span>
+              </div>
+            </div>
+
+            {/* Quick Refresh Actions */}
+            <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+              <div className="p-4 border-b border-gray-700 flex items-center gap-2">
+                <RefreshCw className="w-5 h-5 text-green-400" />
+                <h3 className="font-semibold text-white">Quick Refresh</h3>
+                <span className="text-gray-500 text-sm ml-2">Force refresh cached data</span>
+              </div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {/* Refresh Breadth Data */}
+                <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-cyan-400" />
+                      <span className="text-white font-medium">Breadth Data</span>
+                    </div>
+                    {toolResults['breadth-refresh']?.status === 'loading' && (
+                      <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+                    )}
+                    {toolResults['breadth-refresh']?.status === 'success' && (
+                      <CheckCircle className="w-4 h-4 text-green-400" />
+                    )}
+                    {toolResults['breadth-refresh']?.status === 'error' && (
+                      <AlertCircle className="w-4 h-4 text-red-400" />
+                    )}
+                  </div>
+                  <p className="text-gray-400 text-sm mb-3">Refresh today's breadth indicators (NH/NL, A/D, Up/Down)</p>
+                  <button
+                    onClick={() => runDataTool('breadth-refresh', '/api/fix-breadth?action=refresh')}
+                    disabled={toolResults['breadth-refresh']?.status === 'loading'}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition disabled:opacity-50"
+                  >
+                    <Play className="w-4 h-4" />
+                    Refresh Today
+                  </button>
+                  {toolResults['breadth-refresh']?.message && (
+                    <p className={`mt-2 text-xs ${toolResults['breadth-refresh']?.status === 'error' ? 'text-red-400' : 'text-green-400'}`}>
+                      {toolResults['breadth-refresh'].message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Refresh Sector Rotation */}
+                <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <BarChart3 className="w-5 h-5 text-purple-400" />
+                      <span className="text-white font-medium">Sector Rotation</span>
+                    </div>
+                    {toolResults['sector-refresh']?.status === 'loading' && (
+                      <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+                    )}
+                    {toolResults['sector-refresh']?.status === 'success' && (
+                      <CheckCircle className="w-4 h-4 text-green-400" />
+                    )}
+                    {toolResults['sector-refresh']?.status === 'error' && (
+                      <AlertCircle className="w-4 h-4 text-red-400" />
+                    )}
+                  </div>
+                  <p className="text-gray-400 text-sm mb-3">Refresh sector performance and NH/NL data</p>
+                  <button
+                    onClick={() => runDataTool('sector-refresh', '/api/sector-rotation?refresh=true')}
+                    disabled={toolResults['sector-refresh']?.status === 'loading'}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+                  >
+                    <Play className="w-4 h-4" />
+                    Refresh Now
+                  </button>
+                  {toolResults['sector-refresh']?.message && (
+                    <p className={`mt-2 text-xs ${toolResults['sector-refresh']?.status === 'error' ? 'text-red-400' : 'text-green-400'}`}>
+                      {toolResults['sector-refresh'].message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Refresh Both */}
+                <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Database className="w-5 h-5 text-green-400" />
+                      <span className="text-white font-medium">Refresh All</span>
+                    </div>
+                    {toolResults['all-refresh']?.status === 'loading' && (
+                      <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+                    )}
+                    {toolResults['all-refresh']?.status === 'success' && (
+                      <CheckCircle className="w-4 h-4 text-green-400" />
+                    )}
+                    {toolResults['all-refresh']?.status === 'error' && (
+                      <AlertCircle className="w-4 h-4 text-red-400" />
+                    )}
+                  </div>
+                  <p className="text-gray-400 text-sm mb-3">Refresh all market data endpoints</p>
+                  <button
+                    onClick={async () => {
+                      setToolResults(prev => ({ ...prev, 'all-refresh': { status: 'loading' } }));
+                      try {
+                        await Promise.all([
+                          fetch('/api/fix-breadth?action=refresh'),
+                          fetch('/api/sector-rotation?refresh=true')
+                        ]);
+                        setToolResults(prev => ({ ...prev, 'all-refresh': { status: 'success', message: 'All data refreshed' } }));
+                      } catch {
+                        setToolResults(prev => ({ ...prev, 'all-refresh': { status: 'error', message: 'Refresh failed' } }));
+                      }
+                    }}
+                    disabled={toolResults['all-refresh']?.status === 'loading'}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+                  >
+                    <Play className="w-4 h-4" />
+                    Refresh All
+                  </button>
+                  {toolResults['all-refresh']?.message && (
+                    <p className={`mt-2 text-xs ${toolResults['all-refresh']?.status === 'error' ? 'text-red-400' : 'text-green-400'}`}>
+                      {toolResults['all-refresh'].message}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Date-Specific Fix Tools */}
+            <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+              <div className="p-4 border-b border-gray-700 flex items-center gap-2">
+                <Wrench className="w-5 h-5 text-orange-400" />
+                <h3 className="font-semibold text-white">Fix Historical Data</h3>
+                <span className="text-gray-500 text-sm ml-2">Recalculate data for specific date: <span className="text-orange-400">{toolDate}</span></span>
+              </div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Fix Sector NH/NL */}
+                <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <BarChart3 className="w-5 h-5 text-orange-400" />
+                      <span className="text-white font-medium">Fix Sector NH/NL</span>
+                    </div>
+                    {toolResults['sector-fix']?.status === 'loading' && (
+                      <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+                    )}
+                    {toolResults['sector-fix']?.status === 'success' && (
+                      <CheckCircle className="w-4 h-4 text-green-400" />
+                    )}
+                    {toolResults['sector-fix']?.status === 'error' && (
+                      <AlertCircle className="w-4 h-4 text-red-400" />
+                    )}
+                  </div>
+                  <p className="text-gray-400 text-sm mb-3">Recalculate 15-day high/low and update NH/NL history for {toolDate}</p>
+                  <button
+                    onClick={() => runDataTool('sector-fix', `/api/fix-sector-nhnl?date=${toolDate}`)}
+                    disabled={toolResults['sector-fix']?.status === 'loading'}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition disabled:opacity-50"
+                  >
+                    <Wrench className="w-4 h-4" />
+                    Fix {toolDate}
+                  </button>
+                  {toolResults['sector-fix']?.message && (
+                    <p className={`mt-2 text-xs ${toolResults['sector-fix']?.status === 'error' ? 'text-red-400' : 'text-green-400'}`}>
+                      {toolResults['sector-fix'].message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Delete Breadth Snapshot */}
+                <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-red-400" />
+                      <span className="text-white font-medium">Delete Breadth Snapshot</span>
+                    </div>
+                    {toolResults['breadth-delete']?.status === 'loading' && (
+                      <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+                    )}
+                    {toolResults['breadth-delete']?.status === 'success' && (
+                      <CheckCircle className="w-4 h-4 text-green-400" />
+                    )}
+                    {toolResults['breadth-delete']?.status === 'error' && (
+                      <AlertCircle className="w-4 h-4 text-red-400" />
+                    )}
+                  </div>
+                  <p className="text-gray-400 text-sm mb-3">Remove bad breadth snapshot for {toolDate} (use if data is corrupt)</p>
+                  <button
+                    onClick={() => runDataTool('breadth-delete', `/api/fix-breadth?action=delete&date=${toolDate}`)}
+                    disabled={toolResults['breadth-delete']?.status === 'loading'}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50"
+                  >
+                    <X className="w-4 h-4" />
+                    Delete Snapshot
+                  </button>
+                  {toolResults['breadth-delete']?.message && (
+                    <p className={`mt-2 text-xs ${toolResults['breadth-delete']?.status === 'error' ? 'text-red-400' : 'text-green-400'}`}>
+                      {toolResults['breadth-delete'].message}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Debug Tools */}
+            <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+              <div className="p-4 border-b border-gray-700 flex items-center gap-2">
+                <Database className="w-5 h-5 text-blue-400" />
+                <h3 className="font-semibold text-white">Debug Information</h3>
+                <span className="text-gray-500 text-sm ml-2">View raw data and diagnostics</span>
+              </div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Debug Breadth */}
+                <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                  <div className="flex items-center gap-2 mb-3">
+                    <TrendingUp className="w-5 h-5 text-blue-400" />
+                    <span className="text-white font-medium">Breadth Debug</span>
+                  </div>
+                  <p className="text-gray-400 text-sm mb-3">View raw Redis data, stored dates, and timezone info</p>
+                  <a
+                    href="/api/debug-breadth"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                  >
+                    <Database className="w-4 h-4" />
+                    Open Debug View
+                  </a>
+                </div>
+
+                {/* Sector NH/NL History */}
+                <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                  <div className="flex items-center gap-2 mb-3">
+                    <BarChart3 className="w-5 h-5 text-blue-400" />
+                    <span className="text-white font-medium">Sector NH/NL History</span>
+                  </div>
+                  <p className="text-gray-400 text-sm mb-3">View cached sector new highs/lows history</p>
+                  <a
+                    href="/api/sector-rotation?history=true"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                  >
+                    <Database className="w-4 h-4" />
+                    Open History View
+                  </a>
+                </div>
+              </div>
+            </div>
           </>
         )}
       </div>
