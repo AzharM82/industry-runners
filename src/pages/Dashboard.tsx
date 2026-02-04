@@ -125,9 +125,46 @@ export function Dashboard() {
 
   // Check subscription status on mount
   useEffect(() => {
-    const checkSubscription = async () => {
+    const checkSubscription = async (retryCount = 0) => {
       try {
         const response = await fetch('/api/subscription-status');
+
+        // Check if we got HTML instead of JSON (indicates auth redirect issue)
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          console.error('API returned non-JSON response. Content-Type:', contentType);
+
+          // Check for ?success=true in URL - means just returned from Stripe
+          const urlParams = new URLSearchParams(window.location.search);
+          if (urlParams.get('success') === 'true' && retryCount < 3) {
+            // Wait a moment for auth to settle, then retry
+            console.log(`Retrying subscription check (attempt ${retryCount + 1}/3)...`);
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            return checkSubscription(retryCount + 1);
+          }
+
+          // Force refresh auth by calling /.auth/me
+          const authResponse = await fetch('/.auth/me');
+          const authData = await authResponse.json();
+          console.log('Auth check:', authData);
+
+          if (!authData.clientPrincipal) {
+            // Auth lost - redirect to login
+            console.error('Authentication lost, redirecting to login');
+            window.location.href = '/login/google';
+            return;
+          }
+
+          // Auth is valid but API still returning HTML - likely deployment issue
+          setSubscriptionStatus({
+            has_access: false,
+            is_admin: false,
+            subscription: null,
+            reason: 'API error - please try refreshing the page'
+          });
+          return;
+        }
+
         if (response.ok) {
           const data = await response.json();
           setSubscriptionStatus(data);
@@ -135,7 +172,15 @@ export function Dashboard() {
           if (data.has_access && !data.has_phone && !data.is_admin) {
             setShowPhoneModal(true);
           }
+
+          // Clear success param from URL to prevent confusion on refresh
+          const urlParams = new URLSearchParams(window.location.search);
+          if (urlParams.get('success') === 'true') {
+            window.history.replaceState({}, '', '/dashboard');
+          }
         } else {
+          const text = await response.text();
+          console.error('Subscription check failed:', response.status, text);
           setSubscriptionStatus({ has_access: false, is_admin: false, subscription: null, reason: 'Failed to check subscription' });
         }
       } catch (err) {
@@ -443,6 +488,7 @@ export function Dashboard() {
     // Check for checkout errors in URL
     const urlParams = new URLSearchParams(window.location.search);
     const checkoutError = urlParams.get('checkout_error');
+    const justPaid = urlParams.get('success') === 'true';
 
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
@@ -450,48 +496,78 @@ export function Dashboard() {
           <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <span className="text-white font-bold text-2xl">S</span>
           </div>
-          <h1 className="text-2xl font-bold text-white mb-2">Subscription Required</h1>
-          <p className="text-gray-400 mb-6">
-            Get access to AI-powered stock analysis, market insights, and more for just $6.99/month.
-          </p>
 
-          {checkoutError && (
-            <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm">
-              Checkout error: {decodeURIComponent(checkoutError)}
-            </div>
+          {justPaid ? (
+            <>
+              <h1 className="text-2xl font-bold text-white mb-2">Payment Processing...</h1>
+              <p className="text-gray-400 mb-6">
+                Your payment was received. Please wait a moment while we activate your subscription.
+              </p>
+              <div className="mb-4 p-3 bg-yellow-900/50 border border-yellow-700 rounded-lg text-yellow-300 text-sm">
+                If this page doesn't update automatically, please click the refresh button below.
+              </div>
+              <button
+                onClick={() => window.location.reload()}
+                className="block w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition-colors mb-4"
+              >
+                Refresh Page
+              </button>
+              <p className="text-gray-500 text-sm">
+                Still having issues? Contact support with your email: {user?.userDetails}
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-2xl font-bold text-white mb-2">Subscription Required</h1>
+              <p className="text-gray-400 mb-6">
+                Get access to AI-powered stock analysis, market insights, and more for just $6.99/month.
+              </p>
+
+              {checkoutError && (
+                <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm">
+                  Checkout error: {decodeURIComponent(checkoutError)}
+                </div>
+              )}
+
+              {subscriptionStatus?.reason && subscriptionStatus.reason !== 'Failed to check subscription' && (
+                <div className="mb-4 p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-gray-300 text-sm">
+                  {subscriptionStatus.reason}
+                </div>
+              )}
+
+              <div className="bg-gray-700/50 rounded-xl p-4 mb-6 text-left">
+                <h3 className="text-white font-semibold mb-3">What you get:</h3>
+                <ul className="space-y-2 text-sm text-gray-300">
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">+</span>
+                    30 ChartGPT AI analyses/month
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">+</span>
+                    30 Deep Research reports/month
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">+</span>
+                    30 Halal Compliance checks/month
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">+</span>
+                    Real-time market data & analysis tools
+                  </li>
+                </ul>
+              </div>
+
+              <button
+                onClick={() => {
+                  // Direct navigation to checkout API which will redirect to Stripe
+                  window.location.href = '/api/create-checkout-session';
+                }}
+                className="block w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors mb-4"
+              >
+                Subscribe Now - $6.99/month
+              </button>
+            </>
           )}
-
-          <div className="bg-gray-700/50 rounded-xl p-4 mb-6 text-left">
-            <h3 className="text-white font-semibold mb-3">What you get:</h3>
-            <ul className="space-y-2 text-sm text-gray-300">
-              <li className="flex items-center gap-2">
-                <span className="text-green-400">+</span>
-                30 ChartGPT AI analyses/month
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="text-green-400">+</span>
-                30 Deep Research reports/month
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="text-green-400">+</span>
-                30 Halal Compliance checks/month
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="text-green-400">+</span>
-                Real-time market data & analysis tools
-              </li>
-            </ul>
-          </div>
-
-          <button
-            onClick={() => {
-              // Direct navigation to checkout API which will redirect to Stripe
-              window.location.href = '/api/create-checkout-session';
-            }}
-            className="block w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors mb-4"
-          >
-            Subscribe Now - $6.99/month
-          </button>
 
           <button
             onClick={logout}
