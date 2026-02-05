@@ -82,13 +82,19 @@ export function AdminDashboard() {
     setToolResults(prev => ({ ...prev, [toolKey]: { status: 'loading' } }));
     try {
       const response = await fetch(url);
-      const data = await response.json();
+      const text = await response.text();
+      let data: Record<string, unknown> = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { raw: text.slice(0, 200) };
+      }
       if (response.ok) {
         setToolResults(prev => ({
           ...prev,
           [toolKey]: {
             status: 'success',
-            message: data.message || data.success ? 'Completed successfully' : JSON.stringify(data).slice(0, 200)
+            message: (data.message as string) || (data.success ? 'Completed successfully' : JSON.stringify(data).slice(0, 200))
           }
         }));
       } else {
@@ -96,7 +102,7 @@ export function AdminDashboard() {
           ...prev,
           [toolKey]: {
             status: 'error',
-            message: data.error || 'Request failed'
+            message: (data.error as string) || `HTTP ${response.status}: ${text.slice(0, 100)}`
           }
         }));
       }
