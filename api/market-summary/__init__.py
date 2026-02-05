@@ -188,13 +188,15 @@ def handle_post(req: func.HttpRequest) -> func.HttpResponse:
 
     summary_date = today_pst()
 
-    # Check if today's summary already exists (idempotent)
-    existing = get_market_summaries(limit=1)
-    if existing and existing[0].get('summary_date') and existing[0]['summary_date'].isoformat() == summary_date:
-        return func.HttpResponse(
-            json.dumps({'message': 'Summary already exists for today', 'date': summary_date}),
-            mimetype='application/json'
-        )
+    # Check if today's summary already exists (idempotent, skip with force=true)
+    force = req.params.get('force', '').lower() == 'true'
+    if not force:
+        existing = get_market_summaries(limit=1)
+        if existing and existing[0].get('summary_date') and existing[0]['summary_date'].isoformat() == summary_date:
+            return func.HttpResponse(
+                json.dumps({'message': 'Summary already exists for today', 'date': summary_date}),
+                mimetype='application/json'
+            )
 
     # Load prompt
     prompt_text = load_prompt()
