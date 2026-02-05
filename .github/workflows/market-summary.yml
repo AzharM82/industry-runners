@@ -1,0 +1,29 @@
+name: Generate Daily Market Summary
+
+on:
+  schedule:
+    # 10 PM UTC = 2 PM PST (Mon-Fri)
+    # During PDT this runs at 3 PM PDT — still after market close (1 PM PDT)
+    - cron: '0 22 * * 1-5'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  generate-summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Market Summary
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            "https://agreeable-flower-06913690f.1.azurestaticapps.net/api/market-summary?key=${{ secrets.MARKET_SUMMARY_KEY }}")
+          echo "Response code: $response"
+          if [ "$response" -ge 500 ]; then
+            echo "Server error, retrying in 30 seconds..."
+            sleep 30
+            response=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+              "https://agreeable-flower-06913690f.1.azurestaticapps.net/api/market-summary?key=${{ secrets.MARKET_SUMMARY_KEY }}")
+            echo "Retry response code: $response"
+          fi
+          if [ "$response" -ge 400 ]; then
+            echo "Failed with response code $response"
+            exit 1
+          fi

@@ -14,6 +14,7 @@ import { InvestmentTrackerView } from '../components/InvestmentTrackerView';
 import { SectorRotationView } from '../components/SectorRotationView';
 import { PromptRunner } from '../components/PromptRunner';
 import { StartHereView } from '../components/StartHereView';
+import { MarketSummaryView } from '../components/MarketSummaryView';
 import { useAuth, logout } from '../hooks';
 
 interface SubscriptionStatus {
@@ -103,7 +104,7 @@ function getAllSymbols(): string[] {
   return Array.from(symbols);
 }
 
-type DashboardType = 'start-here' | 'ai-analysis' | 'analysis' | 'focus' | 'breadth' | 'sector-rotation' | 'swing' | 'daytrade' | 'trade-management' | 'investments';
+type DashboardType = 'start-here' | 'market-summary' | 'ai-analysis' | 'analysis' | 'focus' | 'breadth' | 'sector-rotation' | 'swing' | 'daytrade' | 'trade-management' | 'investments';
 
 export function Dashboard() {
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
@@ -702,6 +703,16 @@ export function Dashboard() {
               Start Here
             </button>
             <button
+              onClick={() => setActiveTab('market-summary')}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
+                activeTab === 'market-summary'
+                  ? 'bg-blue-600 text-white border-t border-l border-r border-blue-500'
+                  : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800/50'
+              }`}
+            >
+              Market Summary
+            </button>
+            <button
               onClick={() => setActiveTab('ai-analysis')}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
                 activeTab === 'ai-analysis'
@@ -836,6 +847,9 @@ export function Dashboard() {
         {activeTab === 'start-here' ? (
           // Start Here - Welcome & Guide
           <StartHereView onNavigateToTab={(tab) => setActiveTab(tab as DashboardType)} />
+        ) : activeTab === 'market-summary' ? (
+          // Market Summary - Daily AI-generated market analysis
+          <MarketSummaryView />
         ) : activeTab === 'ai-analysis' ? (
           // AI Analysis Dashboard
           <PromptRunner />

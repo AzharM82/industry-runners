@@ -139,6 +139,10 @@
       "allowedRoles": ["anonymous"]
     },
     {
+      "route": "/api/market-summary",
+      "allowedRoles": ["anonymous", "authenticated"]
+    },
+    {
       "route": "/api/*",
       "allowedRoles": ["anonymous", "authenticated"]
     }

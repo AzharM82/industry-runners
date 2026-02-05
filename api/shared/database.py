@@ -74,6 +74,14 @@ def init_schema():
         created_at TIMESTAMP DEFAULT NOW()
     );
 
+    -- Market summaries table (daily AI-generated market summaries)
+    CREATE TABLE IF NOT EXISTS market_summaries (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        summary_date DATE UNIQUE NOT NULL,
+        summary_text TEXT NOT NULL,
+        generated_at TIMESTAMP DEFAULT NOW()
+    );
+
     -- Create indexes
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_users_stripe_customer ON users(stripe_customer_id);
@@ -82,6 +90,7 @@ def init_schema():
     CREATE INDEX IF NOT EXISTS idx_usage_user_month ON usage(user_id, prompt_type, month_year);
     CREATE INDEX IF NOT EXISTS idx_user_logins_created ON user_logins(created_at);
     CREATE INDEX IF NOT EXISTS idx_user_logins_user ON user_logins(user_id);
+    CREATE INDEX IF NOT EXISTS idx_market_summaries_date ON market_summaries(summary_date);
     """
 
     # Migration SQL for existing tables
@@ -648,3 +657,51 @@ def fix_users_without_subscription(trial_days: int = 3) -> dict:
         'fixed_users': fixed,
         'skipped_users': skipped
     }
+
+
+def save_market_summary(summary_date: str, summary_text: str):
+    """Upsert a market summary for a given date."""
+    conn = get_connection()
+    cur = get_cursor(conn)
+    cur.execute("""
+        INSERT INTO market_summaries (summary_date, summary_text)
+        VALUES (%s, %s)
+        ON CONFLICT (summary_date) DO UPDATE SET summary_text = EXCLUDED.summary_text, generated_at = NOW()
+        RETURNING *
+    """, (summary_date, summary_text))
+    row = cur.fetchone()
+    conn.commit()
+    cur.close()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_market_summaries(limit: int = 5):
+    """Return the latest N market summaries, newest first."""
+    conn = get_connection()
+    cur = get_cursor(conn)
+    cur.execute("""
+        SELECT summary_date, summary_text, generated_at
+        FROM market_summaries
+        ORDER BY summary_date DESC
+        LIMIT %s
+    """, (limit,))
+    rows = [dict(row) for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return rows
+
+
+def cleanup_old_summaries(keep_days: int = 5):
+    """Delete market summaries older than keep_days days."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        DELETE FROM market_summaries
+        WHERE summary_date < CURRENT_DATE - INTERVAL '%s days'
+    """, (keep_days,))
+    deleted = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return deleted
