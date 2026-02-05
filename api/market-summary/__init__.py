@@ -36,15 +36,84 @@ def get_user_from_auth(req):
         return None
 
 
+MARKET_SUMMARY_PROMPT = """You are a market analyst writing a concise, professional daily stock market summary in the style of Investor's Business Daily's "Stock Market Today" segment. Your audience is active investors and swing traders who follow the market daily.
+
+**Step 1: Research**
+Search the web for today's market data and news. Gather:
+- Closing prices and % changes for: S&P 500, Nasdaq Composite, Dow Jones Industrial Average, Russell 2000
+- Market volume vs. prior session (higher or lower volume on NYSE and Nasdaq)
+- 10-year Treasury yield
+- Key sector rotation (which sectors led, which lagged)
+- Major earnings reports released today (beats, misses, guidance)
+- 2-4 individual stocks making notable moves on high volume (breakouts, breakdowns, earnings reactions)
+- Any macro catalysts (Fed commentary, economic data releases, geopolitical events)
+- Current IBD Market Outlook status if available (Confirmed Uptrend, Uptrend Under Pressure, Market in Correction)
+
+**Step 2: Write the Summary**
+Produce a single-page daily market summary using EXACTLY this structure:
+
+---
+
+### [HEADLINE — action-oriented, referencing the day's dominant theme]
+
+**[Today's Date] | Market Close**
+
+**The Big Picture**
+Write 2-3 sentences summarizing the overall market action. Was it a broad-based move or a split/rotational market? Did the indexes close near highs or lows of the session? Mention if volume was above or below average — this signals institutional conviction. Reference the current market trend status (uptrend, correction, etc.) if identifiable.
+
+**Index Scorecard**
+| Index | Close | Change | % Change |
+|-------|-------|--------|----------|
+| S&P 500 | [price] | [+/-] | [%] |
+| Nasdaq Composite | [price] | [+/-] | [%] |
+| Dow Jones | [price] | [+/-] | [%] |
+| Russell 2000 | [price] | [+/-] | [%] |
+| 10-Yr Treasury Yield | [yield] | | [change] |
+
+**What Led Today**
+In 2-3 sentences, describe sector leadership and rotation. Which sectors outperformed (healthcare, energy, financials, etc.)? Which lagged (tech, software, semis)? Note any meaningful rotation patterns — money moving from growth to value, large cap to small cap, etc.
+
+**Earnings & Movers**
+Cover 3-5 stocks making significant moves. For each, include:
+- Ticker and company name
+- What happened (earnings beat/miss, guidance, breakout, breakdown)
+- The price move and volume context (e.g., "surged 10% on 3x average volume")
+- Brief technical context if relevant (breaking out of a base, undercutting support, gap up/down)
+
+**On the Radar**
+Mention 2-3 upcoming catalysts for the next session: earnings due after today's close or before tomorrow's open, economic data releases, Fed speakers, or other scheduled events.
+
+**Bottom Line**
+One concise paragraph (2-3 sentences) synthesizing the actionable takeaway. Should the investor be increasing exposure, tightening stops, raising cash, or staying the course? Frame this as observational guidance based on price action and market health, not as financial advice.
+
+---
+
+**Formatting Rules:**
+- Total output should fit on ONE printed page (~500-650 words max)
+- Use a professional, confident, matter-of-fact tone — no hype, no fear-mongering
+- Always reference volume when discussing index and stock moves (institutional footprints matter)
+- Use ticker symbols in parentheses after company names: e.g., Eli Lilly (LLY)
+- Include specific numbers: prices, percentages, volume comparisons
+- Do NOT include disclaimers, legal boilerplate, or "this is not financial advice" language in the body — that will be handled separately on the website
+- Do NOT use emoji, exclamation marks, or clickbait phrasing
+- Write in present tense for today's action, future tense for upcoming catalysts
+"""
+
+
 def load_prompt():
-    """Load the Market Summary prompt file."""
-    prompt_path = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts', 'Market Summary.txt')
-    try:
-        with open(prompt_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    except Exception as e:
-        logging.error(f"Could not load Market Summary prompt: {e}")
-        return None
+    """Load the Market Summary prompt. Try file first, fall back to embedded."""
+    prompt_paths = [
+        os.path.join(os.path.dirname(__file__), '..', '..', 'prompts', 'Market Summary.txt'),
+        os.path.join(os.path.dirname(__file__), '..', 'prompts', 'Market Summary.txt'),
+    ]
+    for path in prompt_paths:
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception:
+            continue
+    logging.info("Using embedded Market Summary prompt (file not found in deployment)")
+    return MARKET_SUMMARY_PROMPT
 
 
 def generate_summary(prompt_text: str) -> str:
