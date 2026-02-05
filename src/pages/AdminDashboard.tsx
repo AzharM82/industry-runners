@@ -905,6 +905,49 @@ export function AdminDashboard() {
               </div>
             </div>
 
+            {/* User Management */}
+            <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+              <div className="p-4 border-b border-gray-700 flex items-center gap-2">
+                <Users className="w-5 h-5 text-yellow-400" />
+                <h3 className="font-semibold text-white">User Management</h3>
+                <span className="text-gray-500 text-sm ml-2">Fix subscription issues</span>
+              </div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Fix NONE Users */}
+                <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <UserPlus className="w-5 h-5 text-yellow-400" />
+                      <span className="text-white font-medium">Fix NONE Users</span>
+                    </div>
+                    {toolResults['fix-trials']?.status === 'loading' && (
+                      <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+                    )}
+                    {toolResults['fix-trials']?.status === 'success' && (
+                      <CheckCircle className="w-4 h-4 text-green-400" />
+                    )}
+                    {toolResults['fix-trials']?.status === 'error' && (
+                      <AlertCircle className="w-4 h-4 text-red-400" />
+                    )}
+                  </div>
+                  <p className="text-gray-400 text-sm mb-3">Find users with no subscription and create a 3-day trial for them</p>
+                  <button
+                    onClick={() => runDataTool('fix-trials', '/api/admin-fix-trials')}
+                    disabled={toolResults['fix-trials']?.status === 'loading'}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition disabled:opacity-50"
+                  >
+                    <Wrench className="w-4 h-4" />
+                    Fix NONE Users
+                  </button>
+                  {toolResults['fix-trials']?.message && (
+                    <p className={`mt-2 text-xs ${toolResults['fix-trials']?.status === 'error' ? 'text-red-400' : 'text-green-400'}`}>
+                      {toolResults['fix-trials'].message}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* Date-Specific Fix Tools */}
             <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
               <div className="p-4 border-b border-gray-700 flex items-center gap-2">

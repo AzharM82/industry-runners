@@ -554,7 +554,7 @@ def is_user_eligible_for_trial(email: str) -> bool:
 def get_or_create_user_with_trial(email: str, name: str = None, auth_provider: str = None, auth_provider_id: str = None):
     """
     Get existing user or create new one.
-    For new users, mark is_new_user=True so they're eligible for trial.
+    For new users, automatically creates a 3-day trial subscription.
     """
     conn = get_connection()
     cur = get_cursor(conn)
@@ -563,6 +563,7 @@ def get_or_create_user_with_trial(email: str, name: str = None, auth_provider: s
     cur.execute("SELECT * FROM users WHERE email = %s", (email.lower(),))
     user = cur.fetchone()
 
+    is_brand_new = False
     if not user:
         # Create new user with is_new_user=True
         cur.execute("""
@@ -571,8 +572,78 @@ def get_or_create_user_with_trial(email: str, name: str = None, auth_provider: s
             RETURNING *
         """, (email.lower(), name, auth_provider, auth_provider_id))
         user = cur.fetchone()
+        is_brand_new = True
         conn.commit()
 
     cur.close()
     conn.close()
-    return dict(user) if user else None
+
+    user_dict = dict(user) if user else None
+
+    # Auto-create trial for brand new users
+    if is_brand_new and user_dict:
+        try:
+            trial = create_trial_subscription(str(user_dict['id']), trial_days=3)
+            if trial:
+                logging.info(f"Auto-created 3-day trial for new user: {email}")
+            else:
+                logging.warning(f"Trial creation returned None for new user: {email}")
+        except Exception as e:
+            logging.error(f"Failed to create trial for new user {email}: {e}")
+
+    return user_dict
+
+
+def fix_users_without_subscription(trial_days: int = 3) -> dict:
+    """
+    Find all users with no subscription record and create a trial for them.
+    Returns a summary of what was fixed.
+    """
+    from datetime import datetime, timedelta
+
+    conn = get_connection()
+    cur = get_cursor(conn)
+
+    # Find users who have NO subscription at all
+    cur.execute("""
+        SELECT u.id, u.email, u.created_at
+        FROM users u
+        LEFT JOIN subscriptions s ON s.user_id = u.id
+        WHERE s.id IS NULL
+        ORDER BY u.created_at DESC
+    """)
+    users_without_sub = [dict(row) for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+
+    fixed = []
+    skipped = []
+
+    for user in users_without_sub:
+        user_id = str(user['id'])
+        email = user['email']
+
+        # Skip admin emails
+        try:
+            from .admin import is_admin as check_admin
+            if check_admin(email):
+                skipped.append({'email': email, 'reason': 'admin'})
+                continue
+        except Exception:
+            pass
+
+        # Create trial
+        trial = create_trial_subscription(user_id, trial_days=trial_days)
+        if trial:
+            fixed.append({'email': email, 'trial_end': trial['current_period_end'].isoformat() if trial.get('current_period_end') else None})
+            logging.info(f"Fixed: Created {trial_days}-day trial for {email}")
+        else:
+            skipped.append({'email': email, 'reason': 'trial creation failed or already has subscription'})
+
+    return {
+        'total_without_subscription': len(users_without_sub),
+        'fixed': len(fixed),
+        'skipped': len(skipped),
+        'fixed_users': fixed,
+        'skipped_users': skipped
+    }

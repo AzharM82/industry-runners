@@ -131,6 +131,10 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/api/admin-fix-trials",
+      "allowedRoles": ["authenticated"]
+    },
+    {
       "route": "/api/stripe-webhook",
       "allowedRoles": ["anonymous"]
     },
