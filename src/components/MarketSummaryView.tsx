@@ -76,6 +76,7 @@ function formatTimestamp(isoStr: string): string {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
+    timeZone: 'America/Los_Angeles',
     timeZoneName: 'short'
   });
 }

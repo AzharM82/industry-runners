@@ -134,13 +134,13 @@ def generate_summary(prompt_text: str) -> str:
         }]
     )
 
-    # Extract text blocks only (skip tool_use/tool_result blocks)
-    summary = ""
+    # Extract only the LAST text block (skip intermediate reasoning from web search)
+    last_text = ""
     for block in response.content:
         if hasattr(block, 'text'):
-            summary += block.text
+            last_text = block.text
 
-    return summary
+    return last_text
 
 
 def handle_get(req: func.HttpRequest) -> func.HttpResponse:
