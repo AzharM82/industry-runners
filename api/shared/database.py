@@ -120,27 +120,6 @@ def init_schema():
         END IF;
     END $$;
 
-    -- One-time fix: Create 3-day trial for users from Feb 1+ who have no subscription
-    INSERT INTO subscriptions (user_id, stripe_subscription_id, status, current_period_start, current_period_end)
-    SELECT
-        u.id,
-        'trial_' || u.id::text,
-        'trialing',
-        NOW(),
-        NOW() + INTERVAL '3 days'
-    FROM users u
-    LEFT JOIN subscriptions s ON s.user_id = u.id
-    WHERE s.id IS NULL
-      AND u.created_at >= '2026-02-01';
-
-    -- Mark those users as no longer new
-    UPDATE users SET is_new_user = FALSE, updated_at = NOW()
-    WHERE is_new_user = TRUE
-      AND created_at >= '2026-02-01'
-      AND id IN (
-          SELECT s.user_id FROM subscriptions s
-          WHERE s.stripe_subscription_id LIKE 'trial_%'
-      );
     """
 
     try:
