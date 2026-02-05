@@ -134,13 +134,18 @@ def generate_summary(prompt_text: str) -> str:
         }]
     )
 
-    # Extract only the LAST text block (skip intermediate reasoning from web search)
-    last_text = ""
+    # Concatenate all text blocks, then strip preamble before the formatted summary
+    all_text = ""
     for block in response.content:
         if hasattr(block, 'text'):
-            last_text = block.text
+            all_text += block.text
 
-    return last_text
+    # The formatted summary starts with ### (the headline per our prompt template)
+    marker = all_text.find('###')
+    if marker != -1:
+        return all_text[marker:].strip()
+
+    return all_text.strip()
 
 
 def handle_get(req: func.HttpRequest) -> func.HttpResponse:
