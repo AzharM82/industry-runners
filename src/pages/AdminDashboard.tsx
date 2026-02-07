@@ -75,7 +75,8 @@ export function AdminDashboard() {
   const [refreshing, setRefreshing] = useState(false);
 
   // Data Tools state
-  const [toolDate, setToolDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [sectorFixDate, setSectorFixDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [breadthFixDate, setBreadthFixDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [toolResults, setToolResults] = useState<Record<string, { status: 'idle' | 'loading' | 'success' | 'error'; message?: string }>>({});
 
   const runDataTool = async (toolKey: string, url: string) => {
@@ -776,21 +777,6 @@ export function AdminDashboard() {
 
         {activeTab === 'tools' && (
           <>
-            {/* Date Selector for Tools */}
-            <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-              <div className="flex items-center gap-4">
-                <Calendar className="w-5 h-5 text-blue-400" />
-                <span className="text-gray-400">Target Date:</span>
-                <input
-                  type="date"
-                  value={toolDate}
-                  onChange={(e) => setToolDate(e.target.value)}
-                  className="bg-gray-700 text-white px-3 py-1.5 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
-                />
-                <span className="text-gray-500 text-sm">Used for date-specific operations</span>
-              </div>
-            </div>
-
             {/* Quick Refresh Actions */}
             <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
               <div className="p-4 border-b border-gray-700 flex items-center gap-2">
@@ -959,7 +945,7 @@ export function AdminDashboard() {
               <div className="p-4 border-b border-gray-700 flex items-center gap-2">
                 <Wrench className="w-5 h-5 text-orange-400" />
                 <h3 className="font-semibold text-white">Fix Historical Data</h3>
-                <span className="text-gray-500 text-sm ml-2">Recalculate data for specific date: <span className="text-orange-400">{toolDate}</span></span>
+                <span className="text-gray-500 text-sm ml-2">Recalculate data for a specific date</span>
               </div>
               <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Fix Sector NH/NL */}
@@ -979,14 +965,23 @@ export function AdminDashboard() {
                       <AlertCircle className="w-4 h-4 text-red-400" />
                     )}
                   </div>
-                  <p className="text-gray-400 text-sm mb-3">Recalculate 15-day high/low and update NH/NL history for {toolDate}</p>
+                  <p className="text-gray-400 text-sm mb-3">Recalculate 15-day high/low and update NH/NL history</p>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Calendar className="w-4 h-4 text-gray-500" />
+                    <input
+                      type="date"
+                      value={sectorFixDate}
+                      onChange={(e) => setSectorFixDate(e.target.value)}
+                      className="flex-1 bg-gray-700 text-white px-3 py-1.5 rounded-lg border border-gray-600 focus:outline-none focus:border-orange-500 text-sm"
+                    />
+                  </div>
                   <button
-                    onClick={() => runDataTool('sector-fix', `/api/fix-sector-nhnl?date=${toolDate}`)}
+                    onClick={() => runDataTool('sector-fix', `/api/fix-sector-nhnl?date=${sectorFixDate}`)}
                     disabled={toolResults['sector-fix']?.status === 'loading'}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition disabled:opacity-50"
                   >
                     <Wrench className="w-4 h-4" />
-                    Fix {toolDate}
+                    Fix {sectorFixDate}
                   </button>
                   {toolResults['sector-fix']?.message && (
                     <p className={`mt-2 text-xs ${toolResults['sector-fix']?.status === 'error' ? 'text-red-400' : 'text-green-400'}`}>
@@ -1012,14 +1007,23 @@ export function AdminDashboard() {
                       <AlertCircle className="w-4 h-4 text-red-400" />
                     )}
                   </div>
-                  <p className="text-gray-400 text-sm mb-3">Remove bad breadth snapshot for {toolDate} (use if data is corrupt)</p>
+                  <p className="text-gray-400 text-sm mb-3">Remove bad breadth snapshot (use if data is corrupt)</p>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Calendar className="w-4 h-4 text-gray-500" />
+                    <input
+                      type="date"
+                      value={breadthFixDate}
+                      onChange={(e) => setBreadthFixDate(e.target.value)}
+                      className="flex-1 bg-gray-700 text-white px-3 py-1.5 rounded-lg border border-gray-600 focus:outline-none focus:border-red-500 text-sm"
+                    />
+                  </div>
                   <button
-                    onClick={() => runDataTool('breadth-delete', `/api/fix-breadth?action=delete&date=${toolDate}`)}
+                    onClick={() => runDataTool('breadth-delete', `/api/fix-breadth?action=delete&date=${breadthFixDate}`)}
                     disabled={toolResults['breadth-delete']?.status === 'loading'}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50"
                   >
                     <X className="w-4 h-4" />
-                    Delete Snapshot
+                    Delete {breadthFixDate}
                   </button>
                   {toolResults['breadth-delete']?.message && (
                     <p className={`mt-2 text-xs ${toolResults['breadth-delete']?.status === 'error' ? 'text-red-400' : 'text-green-400'}`}>
