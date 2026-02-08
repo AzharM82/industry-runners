@@ -85,6 +85,7 @@ export function MarketSummaryView() {
   const [summaries, setSummaries] = useState<MarketSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedDate, setExpandedDate] = useState<string | null>(null);
 
   const fetchSummaries = useCallback(async () => {
     setLoading(true);
@@ -162,25 +163,46 @@ export function MarketSummaryView() {
         </div>
       ) : (
         <div className="space-y-6">
-          {summaries.map((summary) => (
-            <div
-              key={summary.summary_date}
-              className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden"
-            >
-              <div className="px-6 py-4 border-b border-gray-700 bg-gray-800/80">
-                <h3 className="text-lg font-semibold text-white">
-                  {formatDate(summary.summary_date)}
-                </h3>
-                <span className="text-xs text-gray-500">
-                  Generated at {formatTimestamp(summary.generated_at)}
-                </span>
-              </div>
+          {summaries.map((summary, index) => {
+            const isExpanded = expandedDate === summary.summary_date;
+            const isLatest = index === 0;
+            return (
               <div
-                className="px-6 py-5 prose prose-invert max-w-none"
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(summary.summary_text) }}
-              />
-            </div>
-          ))}
+                key={summary.summary_date}
+                className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden"
+              >
+                <div
+                  className={`px-6 py-4 border-b border-gray-700 bg-gray-800/80 flex items-center justify-between ${!isLatest ? 'cursor-pointer hover:bg-gray-750' : ''}`}
+                  onClick={() => !isLatest && setExpandedDate(isExpanded ? null : summary.summary_date)}
+                >
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">
+                      {formatDate(summary.summary_date)}
+                      {isLatest && (
+                        <span className="ml-3 text-xs font-medium text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full">
+                          Latest
+                        </span>
+                      )}
+                    </h3>
+                    <span className="text-xs text-gray-500">
+                      Generated at {formatTimestamp(summary.generated_at)}
+                    </span>
+                  </div>
+                  {!isLatest && (
+                    <span className={`text-gray-400 text-sm transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+                      ▼
+                    </span>
+                  )}
+                </div>
+                {(isLatest || isExpanded) && (
+                  <div
+                    className="px-6 py-5 prose prose-invert max-w-none"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(summary.summary_text) }}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
