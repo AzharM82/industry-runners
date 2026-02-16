@@ -191,9 +191,22 @@ def handle_post(req: func.HttpRequest) -> func.HttpResponse:
             mimetype='application/json'
         )
 
-    summary_date = today_pst()
+    # Allow generating for a specific date (YYYY-MM-DD) or default to today PST
+    date_param = req.params.get('date')
+    if date_param:
+        try:
+            datetime.strptime(date_param, '%Y-%m-%d')
+            summary_date = date_param
+        except ValueError:
+            return func.HttpResponse(
+                json.dumps({'error': 'Invalid date format. Use YYYY-MM-DD'}),
+                status_code=400,
+                mimetype='application/json'
+            )
+    else:
+        summary_date = today_pst()
 
-    # Check if today's summary already exists (idempotent, skip with force=true)
+    # Check if summary already exists (idempotent, skip with force=true)
     force = req.params.get('force', '').lower() == 'true'
     if not force:
         existing = get_market_summaries(limit=1)
@@ -212,8 +225,10 @@ def handle_post(req: func.HttpRequest) -> func.HttpResponse:
             mimetype='application/json'
         )
 
-    # Generate summary
+    # Generate summary — if generating for a specific date, prepend it to the prompt
     logging.info(f"Generating market summary for {summary_date}")
+    if date_param:
+        prompt_text = f"Generate the market summary specifically for the trading day of {summary_date}. Search for market data from that date.\n\n{prompt_text}"
     summary_text = generate_summary(prompt_text)
 
     if not summary_text or not summary_text.strip():

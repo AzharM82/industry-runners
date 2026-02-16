@@ -13,17 +13,23 @@ jobs:
     steps:
       - name: Generate Market Summary
         run: |
-          response=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+          response=$(curl -s -w "\n%{http_code}" -X POST \
             "https://agreeable-flower-06913690f.1.azurestaticapps.net/api/market-summary?key=${{ secrets.MARKET_SUMMARY_KEY }}")
-          echo "Response code: $response"
-          if [ "$response" -ge 500 ]; then
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | sed '$d')
+          echo "Response code: $http_code"
+          echo "Response body: $body"
+          if [ "$http_code" -ge 500 ]; then
             echo "Server error, retrying in 30 seconds..."
             sleep 30
-            response=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            response=$(curl -s -w "\n%{http_code}" -X POST \
               "https://agreeable-flower-06913690f.1.azurestaticapps.net/api/market-summary?key=${{ secrets.MARKET_SUMMARY_KEY }}")
-            echo "Retry response code: $response"
+            http_code=$(echo "$response" | tail -1)
+            body=$(echo "$response" | sed '$d')
+            echo "Retry response code: $http_code"
+            echo "Retry response body: $body"
           fi
-          if [ "$response" -ge 400 ]; then
-            echo "Failed with response code $response"
+          if [ "$http_code" -ge 400 ]; then
+            echo "::error::Failed with response code $http_code: $body"
             exit 1
           fi
