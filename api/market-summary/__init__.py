@@ -118,21 +118,34 @@ def load_prompt():
 
 def generate_summary(prompt_text: str) -> str:
     """Call Claude API with web search to generate the market summary."""
+    import time
+
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4096,
-        tools=[{
-            "type": "web_search_20250305",
-            "name": "web_search",
-            "max_uses": 10
-        }],
-        messages=[{
-            "role": "user",
-            "content": prompt_text
-        }]
-    )
+    # Retry up to 3 times with exponential backoff for rate limit errors
+    for attempt in range(3):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=4096,
+                tools=[{
+                    "type": "web_search_20250305",
+                    "name": "web_search",
+                    "max_uses": 5
+                }],
+                messages=[{
+                    "role": "user",
+                    "content": prompt_text
+                }]
+            )
+            break
+        except anthropic.RateLimitError as e:
+            if attempt < 2:
+                wait_time = 30 * (attempt + 1)  # 30s, 60s
+                logging.warning(f"Rate limited (attempt {attempt + 1}/3), waiting {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                raise
 
     # Concatenate all text blocks, then strip preamble before the formatted summary
     all_text = ""
