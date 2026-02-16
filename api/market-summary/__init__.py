@@ -19,6 +19,7 @@ from shared.database import (
     cleanup_old_summaries
 )
 from shared.timezone import today_pst
+from shared.cache import get_cached, set_cached
 
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 MARKET_SUMMARY_KEY = os.environ.get('MARKET_SUMMARY_KEY')
@@ -161,6 +162,10 @@ def generate_summary(prompt_text: str) -> str:
     return all_text.strip()
 
 
+CACHE_KEY_SUMMARIES = "market_summaries:latest"
+CACHE_TTL_SUMMARIES = 60 * 60  # 1 hour — data only changes once/day
+
+
 def handle_get(req: func.HttpRequest) -> func.HttpResponse:
     """GET: Return latest market summaries (requires authentication)."""
     auth_user = get_user_from_auth(req)
@@ -168,6 +173,14 @@ def handle_get(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({'error': 'Unauthorized'}),
             status_code=401,
+            mimetype='application/json'
+        )
+
+    # Check Redis cache first
+    cached = get_cached(CACHE_KEY_SUMMARIES)
+    if cached:
+        return func.HttpResponse(
+            json.dumps(cached),
             mimetype='application/json'
         )
 
@@ -180,10 +193,24 @@ def handle_get(req: func.HttpRequest) -> func.HttpResponse:
         if s.get('generated_at'):
             s['generated_at'] = s['generated_at'].isoformat()
 
+    response_data = {'summaries': summaries}
+    set_cached(CACHE_KEY_SUMMARIES, response_data, CACHE_TTL_SUMMARIES)
+
     return func.HttpResponse(
-        json.dumps({'summaries': summaries}),
+        json.dumps(response_data),
         mimetype='application/json'
     )
+
+
+def invalidate_summary_cache():
+    """Clear the cached summaries so the next GET fetches fresh data."""
+    try:
+        from shared.cache import get_redis_client
+        client = get_redis_client()
+        if client:
+            client.delete(CACHE_KEY_SUMMARIES)
+    except Exception:
+        pass
 
 
 def handle_post(req: func.HttpRequest) -> func.HttpResponse:
@@ -251,8 +278,9 @@ def handle_post(req: func.HttpRequest) -> func.HttpResponse:
             mimetype='application/json'
         )
 
-    # Save to database
+    # Save to database and invalidate cache
     save_market_summary(summary_date, summary_text)
+    invalidate_summary_cache()
 
     # Clean up old summaries
     deleted = cleanup_old_summaries(keep_days=5)
