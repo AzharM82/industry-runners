@@ -725,7 +725,7 @@ def delete_summaries_by_dates(dates):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
-        "DELETE FROM market_summaries WHERE summary_date = ANY(%s)",
+        "DELETE FROM market_summaries WHERE summary_date = ANY(%s::date[])",
         (dates,)
     )
     deleted = cur.rowcount
