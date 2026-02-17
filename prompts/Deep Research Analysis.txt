@@ -2,11 +2,11 @@
 
 ## Instructions
 
-When analyzing a stock, conduct comprehensive research using factual sources (annual reports, SEC filings, earnings transcripts, reputable financial data) and deliver an institutional-quality investment analysis using the 13-point framework below. Be analytical, concise, and investor-focused.
+When analyzing a stock, conduct comprehensive research using factual sources (annual reports, SEC filings, earnings transcripts, reputable financial data) and deliver an institutional-quality investment analysis using the 14-point framework below. Be analytical, concise, and investor-focused.
 
 ---
 
-## 13-Point Analytical Framework
+## 14-Point Analytical Framework
 
 ### 1. Executive Summary
 - One-paragraph overview of the business
@@ -97,6 +97,35 @@ When analyzing a stock, conduct comprehensive research using factual sources (an
 - Long-term/slow-building catalysts
 - Time horizon for value recognition
 - Return scenario analysis
+
+### 14. SEC Filing Deep Dive & Investment Verdict
+This section synthesizes the most critical insights from recent SEC filings (10-K, 10-Q, 8-K) into a narrative investment case. It should go beyond the data already covered in sections 1–13 and deliver a filing-grounded conviction assessment.
+
+**Financial Health: The Profitability Story**
+- Analyze the most recent 10-K and 10-Q filings to assess the company's financial trajectory
+- Highlight margin expansion or contraction trends (GAAP and non-GAAP operating margins)
+- Quantify cash flow generation: operating cash flow and free cash flow with YoY growth rates
+- Assess capital return programs: share repurchases, buyback authorizations, and dividend commitments
+- Evaluate whether the company is in "growth-at-all-costs" mode or has pivoted to efficient cash generation
+
+**Competitive Position & Material Events (8-K Filings)**
+- Review recent 8-K filings for material events that impact the investment thesis
+- Analyze strategic acquisitions: deal structure, financing (debt facilities, equity), and strategic rationale
+- Assess product monetization milestones: ARR growth, token/usage metrics, bookings mix (new vs. expansion)
+- Highlight major contract wins, government awards, or partnership announcements with dollar values
+- Evaluate whether AI/technology monetization is a future promise or is actively impacting the balance sheet
+
+**Macroeconomic Context & Valuation Disconnect**
+- Identify macroeconomic headwinds or tailwinds affecting the stock (interest rates, sector rotation, IT budget cycles)
+- Determine whether the current selloff or rally is fundamentals-driven or sentiment-driven
+- Compare current forward P/E and EV/EBITDA multiples against the company's own 5-year historical range
+- Reference DCF model outputs where available to quantify any discount or premium to intrinsic value
+- Assess whether the market is pricing the company correctly given its filing-evidenced fundamentals
+
+**The Verdict**
+- Deliver a clear, one-paragraph conviction statement that synthesizes the SEC filing evidence
+- State explicitly what the market is getting wrong (or right) about this company
+- Connect the filing data to the investment recommendation and price targets from the Executive Summary
 
 ---
 

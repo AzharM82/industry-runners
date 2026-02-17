@@ -286,7 +286,7 @@ def load_prompts():
             if key == 'chartgpt':
                 PROMPTS[key] = "You are ChartGPT, an expert chart pattern analyst. Analyze the given stock."
             elif key == 'deep-research':
-                PROMPTS[key] = "You are an equity research analyst. Provide a comprehensive 13-point analysis of the given stock."
+                PROMPTS[key] = "You are an equity research analyst. Provide a comprehensive 14-point analysis of the given stock."
             elif key == 'halal':
                 PROMPTS[key] = "You are a Shariah compliance analyst. Check if the given stock is halal according to AAOIFI standards."
 
@@ -527,7 +527,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
 {market_data_text}
 
-Based on the market data above, provide a comprehensive 13-point equity research analysis. Use the actual numbers provided to calculate specific price targets (Bear Case / Base Case / Bull Case) based on valuation multiples and DCF considerations."""
+Based on the market data above, provide a comprehensive 14-point equity research analysis. Use the actual numbers provided to calculate specific price targets (Bear Case / Base Case / Bull Case) based on valuation multiples and DCF considerations."""
         elif prompt_type == 'halal':
             # Fetch real market data from Polygon for Halal compliance check
             logging.info(f"Fetching Polygon market data for {ticker} (Halal check)")
