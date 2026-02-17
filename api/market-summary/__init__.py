@@ -16,10 +16,13 @@ from shared.database import (
     init_schema,
     save_market_summary,
     get_market_summaries,
-    cleanup_old_summaries
+    cleanup_old_summaries,
+    get_all_summary_dates,
+    delete_summaries_by_dates,
 )
 from shared.timezone import today_pst
 from shared.cache import get_cached, set_cached
+from shared.market_calendar import is_market_open, get_closure_reason
 
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 MARKET_SUMMARY_KEY = os.environ.get('MARKET_SUMMARY_KEY')
@@ -224,6 +227,33 @@ def handle_post(req: func.HttpRequest) -> func.HttpResponse:
             mimetype='application/json'
         )
 
+    # One-time action: clean up summaries generated on holidays/weekends
+    if req.params.get('action') == 'cleanup_holidays':
+        all_dates = get_all_summary_dates()
+        closed_dates = []
+        for d in all_dates:
+            date_str = d.isoformat() if hasattr(d, 'isoformat') else str(d)
+            if not is_market_open(date_str):
+                reason = get_closure_reason(date_str)
+                closed_dates.append({'date': date_str, 'reason': reason})
+
+        if closed_dates:
+            dates_to_delete = [cd['date'] for cd in closed_dates]
+            deleted = delete_summaries_by_dates(dates_to_delete)
+            invalidate_summary_cache()
+            return func.HttpResponse(
+                json.dumps({
+                    'message': f'Deleted {deleted} summaries from market-closed days',
+                    'deleted': closed_dates
+                }),
+                mimetype='application/json'
+            )
+        else:
+            return func.HttpResponse(
+                json.dumps({'message': 'No holiday/weekend summaries found'}),
+                mimetype='application/json'
+            )
+
     if not ANTHROPIC_API_KEY:
         return func.HttpResponse(
             json.dumps({'error': 'ANTHROPIC_API_KEY not configured'}),
@@ -246,8 +276,22 @@ def handle_post(req: func.HttpRequest) -> func.HttpResponse:
     else:
         summary_date = today_pst()
 
-    # Check if summary already exists (idempotent, skip with force=true)
+    # Skip if market was closed (weekends, holidays, special closures)
+    # Can override with force=true for manual runs
     force = req.params.get('force', '').lower() == 'true'
+    if not force and not is_market_open(summary_date):
+        reason = get_closure_reason(summary_date)
+        logging.info(f"Skipping market summary for {summary_date}: {reason}")
+        return func.HttpResponse(
+            json.dumps({
+                'message': f'Market was closed on {summary_date} ({reason}). Skipping summary generation.',
+                'date': summary_date,
+                'market_open': False
+            }),
+            mimetype='application/json'
+        )
+
+    # Check if summary already exists (idempotent, skip with force=true)
     if not force:
         existing = get_market_summaries(limit=1)
         if existing and existing[0].get('summary_date') and existing[0]['summary_date'].isoformat() == summary_date:

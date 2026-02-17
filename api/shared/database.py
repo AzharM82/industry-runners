@@ -705,3 +705,31 @@ def cleanup_old_summaries(keep_days: int = 5):
     cur.close()
     conn.close()
     return deleted
+
+
+def get_all_summary_dates():
+    """Return all summary dates in the database."""
+    conn = get_connection()
+    cur = get_cursor(conn)
+    cur.execute("SELECT summary_date FROM market_summaries ORDER BY summary_date DESC")
+    rows = [row['summary_date'] for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return rows
+
+
+def delete_summaries_by_dates(dates):
+    """Delete market summaries for specific dates. Returns count deleted."""
+    if not dates:
+        return 0
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM market_summaries WHERE summary_date = ANY(%s)",
+        (dates,)
+    )
+    deleted = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return deleted
