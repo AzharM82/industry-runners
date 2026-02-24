@@ -147,10 +147,10 @@ def get_15day_high_low(symbols: list) -> dict:
 
 
 def save_daily_nh_nl(sectors_data: list, date_str: str):
-    """Save daily New Highs/New Lows data to cache (business days only)"""
-    # Don't save weekend data
+    """Save daily New Highs/New Lows data to cache (trading days only)"""
+    # Don't save non-trading-day data (weekends + holidays)
     if not is_business_day(date_str):
-        logging.info(f"Skipping NH/NL save for weekend date: {date_str}")
+        logging.info(f"Skipping NH/NL save for non-trading day: {date_str}")
         return
 
     history_key = "sector-rotation:nh-nl-history"
@@ -162,14 +162,26 @@ def save_daily_nh_nl(sectors_data: list, date_str: str):
         'sectors': {}
     }
 
+    total_nh = 0
+    total_nl = 0
     for sector in sectors_data:
-        day_data['sectors'][sector['shortName']] = {
-            'nh': sector.get('newHighs', 0),
-            'nl': sector.get('newLows', 0)
-        }
+        nh = sector.get('newHighs', 0)
+        nl = sector.get('newLows', 0)
+        day_data['sectors'][sector['shortName']] = {'nh': nh, 'nl': nl}
+        total_nh += nh
+        total_nl += nl
+
+    # Don't overwrite existing data with all-zero values (stale snapshot after market close)
+    existing_idx = next((i for i, d in enumerate(history['days']) if d['date'] == date_str), None)
+    if total_nh == 0 and total_nl == 0 and existing_idx is not None:
+        existing = history['days'][existing_idx]
+        existing_nh = sum(v.get('nh', 0) for v in existing.get('sectors', {}).values())
+        existing_nl = sum(v.get('nl', 0) for v in existing.get('sectors', {}).values())
+        if existing_nh > 0 or existing_nl > 0:
+            logging.info(f"Skipping NH/NL save: all zeros would overwrite existing data for {date_str}")
+            return
 
     # Check if today already exists, update or append
-    existing_idx = next((i for i, d in enumerate(history['days']) if d['date'] == date_str), None)
     if existing_idx is not None:
         history['days'][existing_idx] = day_data
     else:
