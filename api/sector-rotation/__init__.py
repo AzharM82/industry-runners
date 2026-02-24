@@ -10,6 +10,7 @@ import urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.cache import get_cached, set_cached
 from shared.timezone import today_pst, now_pst
+from shared.market_calendar import is_market_open as is_trading_day
 
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
 POLYGON_BASE_URL = 'https://api.polygon.io'
@@ -60,9 +61,8 @@ def get_today_date_pst() -> str:
 
 
 def is_business_day(date_str: str) -> bool:
-    """Check if a date string (YYYY-MM-DD) is a business day (Mon-Fri)"""
-    date = datetime.strptime(date_str, '%Y-%m-%d')
-    return date.weekday() < 5  # 0-4 are Mon-Fri
+    """Check if a date string (YYYY-MM-DD) is a market trading day (excludes weekends AND holidays)"""
+    return is_trading_day(date_str)
 
 
 def polygon_request(endpoint: str, timeout: int = 15) -> dict:

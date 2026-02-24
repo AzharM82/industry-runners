@@ -1,7 +1,9 @@
 """
 Fix endpoint for sector NH/NL data.
 Forces recalculation of 15-day high/low and updates history.
-Usage: /api/fix-sector-nhnl?date=2026-02-03
+Usage:
+  /api/fix-sector-nhnl?date=2026-02-03          — recalculate NH/NL for a specific date
+  /api/fix-sector-nhnl?action=cleanup_holidays   — remove holiday/weekend entries from history
 """
 
 import json
@@ -16,6 +18,7 @@ import ssl
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.cache import get_cached, set_cached
 from shared.timezone import today_pst
+from shared.market_calendar import is_market_open as is_trading_day
 
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
 POLYGON_BASE_URL = 'https://api.polygon.io'
@@ -62,7 +65,46 @@ def get_all_symbols() -> list:
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     try:
+        action = req.params.get('action', '')
+
+        # Cleanup holidays/weekends from NH/NL history
+        if action == 'cleanup_holidays':
+            history_key = "sector-rotation:nh-nl-history"
+            history = get_cached(history_key) or {'days': []}
+            before_count = len(history['days'])
+            removed = []
+            kept = []
+            for d in history['days']:
+                if is_trading_day(d['date']):
+                    kept.append(d)
+                else:
+                    removed.append(d['date'])
+            history['days'] = kept
+
+            set_cached(history_key, history, 30 * 24 * 3600)
+            return func.HttpResponse(
+                json.dumps({
+                    'success': True,
+                    'action': 'cleanup_holidays',
+                    'before_count': before_count,
+                    'after_count': len(history['days']),
+                    'removed_dates': removed
+                }, indent=2),
+                mimetype="application/json"
+            )
+
         target_date = req.params.get('date', today_pst())
+
+        # Warn if target date is not a trading day
+        if not is_trading_day(target_date):
+            return func.HttpResponse(
+                json.dumps({
+                    'error': f'{target_date} is not a trading day (weekend or holiday)',
+                    'hint': 'Use a valid market day or ?action=cleanup_holidays to remove bad entries'
+                }, indent=2),
+                status_code=400,
+                mimetype="application/json"
+            )
 
         if not POLYGON_API_KEY:
             return func.HttpResponse(
