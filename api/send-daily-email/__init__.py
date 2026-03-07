@@ -6,6 +6,7 @@ Authenticated by DAILY_EMAIL_KEY query parameter.
 
 import json
 import os
+import re
 import logging
 import smtplib
 import hmac
@@ -38,15 +39,94 @@ def make_unsubscribe_token(email: str) -> str:
     ).hexdigest()[:32]
 
 
+def color_for_value(val, threshold=0):
+    """Return green/red color based on value."""
+    try:
+        v = float(val)
+        return '#4ade80' if v >= threshold else '#f87171'
+    except (ValueError, TypeError):
+        return '#9ca3af'
+
+
+def format_pct(val):
+    """Format a number as percentage string."""
+    try:
+        v = float(val)
+        sign = '+' if v > 0 else ''
+        return f'{sign}{v:.2f}%'
+    except (ValueError, TypeError):
+        return str(val) if val is not None else 'N/A'
+
+
 def markdown_to_html(text: str) -> str:
-    """Lightweight markdown to HTML conversion for email."""
+    """Lightweight markdown to HTML conversion for email.
+    Detects table-like patterns (e.g. Index Scorecard) and renders as HTML tables.
+    """
     if not text:
         return ''
+
     lines = text.split('\n')
     html_lines = []
     in_list = False
+    in_table = False
+    table_rows = []
+
+    def flush_table():
+        nonlocal in_table, table_rows
+        if not table_rows:
+            return
+        # Build HTML table
+        header = table_rows[0]
+        body = table_rows[1:]
+        hcells = ''.join(
+            f'<th style="padding:6px 10px;color:#9ca3af;text-align:left;border-bottom:1px solid #4b5563;">{c.strip()}</th>'
+            for c in header
+        )
+        rows_html = ''
+        for row in body:
+            cells = ''
+            for i, c in enumerate(row):
+                c = c.strip()
+                # Color-code percentage-like values
+                clr = '#e5e7eb'
+                if i > 0 and c:
+                    clr_match = re.search(r'[+-]?\d+\.?\d*%', c)
+                    if clr_match:
+                        try:
+                            v = float(clr_match.group().replace('%', ''))
+                            clr = '#4ade80' if v >= 0 else '#f87171'
+                        except ValueError:
+                            pass
+                cells += f'<td style="padding:6px 10px;color:{clr};border-bottom:1px solid #374151;">{c}</td>'
+            rows_html += f'<tr>{cells}</tr>'
+        html_lines.append(
+            f'<table style="width:100%;border-collapse:collapse;background:#1f2937;border-radius:8px;margin:8px 0;">'
+            f'<tr>{hcells}</tr>{rows_html}</table>'
+        )
+        table_rows = []
+        in_table = False
+
     for line in lines:
         stripped = line.strip()
+
+        # Detect markdown table rows (e.g. "| SPY | +0.5% | ...")
+        if stripped.startswith('|') and stripped.endswith('|'):
+            # Skip separator rows like |---|---|
+            if re.match(r'^\|[\s\-:|]+\|$', stripped):
+                continue
+            if in_list:
+                html_lines.append('</ul>')
+                in_list = False
+            cols = [c.strip() for c in stripped.strip('|').split('|')]
+            if not in_table:
+                in_table = True
+            table_rows.append(cols)
+            continue
+
+        # If we were in a table and hit a non-table line, flush it
+        if in_table:
+            flush_table()
+
         if stripped.startswith('### '):
             if in_list:
                 html_lines.append('</ul>')
@@ -67,75 +147,63 @@ def markdown_to_html(text: str) -> str:
                 html_lines.append('<ul style="margin:4px 0;padding-left:20px;">')
                 in_list = True
             content = stripped[2:]
-            # Handle bold within list items
-            import re
             content = re.sub(r'\*\*(.+?)\*\*', r'<strong style="color:#f9fafb;">\1</strong>', content)
             html_lines.append(f'<li style="color:#d1d5db;margin:2px 0;">{content}</li>')
         elif stripped:
             if in_list:
                 html_lines.append('</ul>')
                 in_list = False
-            import re
             processed = re.sub(r'\*\*(.+?)\*\*', r'<strong style="color:#f9fafb;">\1</strong>', stripped)
             html_lines.append(f'<p style="color:#d1d5db;margin:6px 0;">{processed}</p>')
         else:
             if in_list:
                 html_lines.append('</ul>')
                 in_list = False
+
+    if in_table:
+        flush_table()
     if in_list:
         html_lines.append('</ul>')
     return '\n'.join(html_lines)
 
 
-def color_for_value(val, threshold=0):
-    """Return green/red color based on value."""
-    try:
-        v = float(val)
-        return '#4ade80' if v >= threshold else '#f87171'
-    except (ValueError, TypeError):
-        return '#9ca3af'
-
-
-def format_pct(val):
-    """Format a number as percentage string."""
-    try:
-        v = float(val)
-        sign = '+' if v > 0 else ''
-        return f'{sign}{v:.2f}%'
-    except (ValueError, TypeError):
-        return str(val) if val is not None else 'N/A'
-
-
 def build_breadth_section(realtime_data, daily_data):
-    """Build the market breadth HTML section."""
+    """Build the market breadth HTML section.
+    realtime_data structure: {primary: {up4PlusToday, down4PlusToday, ratio5Day, ...}, t2108, ...}
+    daily_data structure: {highs: {new52WeekHigh, new52WeekLow}, rsi: {above70, below30}, sma: {aboveSMA200, belowSMA200}, ...}
+    """
     if not realtime_data and not daily_data:
         return ''
 
     rows = ''
 
     if realtime_data:
-        up4 = realtime_data.get('up4Pct', 'N/A')
-        down4 = realtime_data.get('down4Pct', 'N/A')
-        ratio = realtime_data.get('upDownRatio', 'N/A')
+        primary = realtime_data.get('primary', {})
+        up4 = primary.get('up4PlusToday', 'N/A')
+        down4 = primary.get('down4PlusToday', 'N/A')
+        ratio = primary.get('ratio5Day', 'N/A')
         t2108 = realtime_data.get('t2108', 'N/A')
         rows += f'''
         <tr><td style="padding:6px 12px;color:#9ca3af;">Up &gt;4%</td>
             <td style="padding:6px 12px;color:#4ade80;text-align:right;">{up4}</td>
             <td style="padding:6px 12px;color:#9ca3af;">Down &gt;4%</td>
             <td style="padding:6px 12px;color:#f87171;text-align:right;">{down4}</td></tr>
-        <tr><td style="padding:6px 12px;color:#9ca3af;">Up/Down Ratio</td>
+        <tr><td style="padding:6px 12px;color:#9ca3af;">Up/Down Ratio (5d)</td>
             <td style="padding:6px 12px;color:{color_for_value(ratio, 1)};text-align:right;">{ratio}</td>
             <td style="padding:6px 12px;color:#9ca3af;">T2108</td>
             <td style="padding:6px 12px;color:#e5e7eb;text-align:right;">{t2108}</td></tr>
         '''
 
     if daily_data:
-        nh = daily_data.get('newHighs', 'N/A')
-        nl = daily_data.get('newLows', 'N/A')
-        rsi_above = daily_data.get('rsiAbove70', 'N/A')
-        rsi_below = daily_data.get('rsiBelow30', 'N/A')
-        sma_above = daily_data.get('aboveSma200', 'N/A')
-        sma_below = daily_data.get('belowSma200', 'N/A')
+        highs = daily_data.get('highs', {})
+        rsi = daily_data.get('rsi', {})
+        sma = daily_data.get('sma', {})
+        nh = highs.get('new52WeekHigh', 'N/A')
+        nl = highs.get('new52WeekLow', 'N/A')
+        rsi_above = rsi.get('above70', 'N/A')
+        rsi_below = rsi.get('below30', 'N/A')
+        sma_above = sma.get('aboveSMA200', 'N/A')
+        sma_below = sma.get('belowSMA200', 'N/A')
         rows += f'''
         <tr><td style="padding:6px 12px;color:#9ca3af;">52w Highs</td>
             <td style="padding:6px 12px;color:#4ade80;text-align:right;">{nh}</td>
@@ -206,21 +274,46 @@ def build_sector_section(sector_data):
     '''
 
 
+def _extract_heatmap_values(data):
+    """Extract flat key-value pairs from nested breadth data for heatmap display."""
+    flat = {}
+    if not data:
+        return flat
+    # Realtime fields
+    primary = data.get('primary', {})
+    if primary:
+        flat['up4PlusToday'] = primary.get('up4PlusToday')
+        flat['down4PlusToday'] = primary.get('down4PlusToday')
+        flat['ratio5Day'] = primary.get('ratio5Day')
+    if 't2108' in data:
+        flat['t2108'] = data.get('t2108')
+    # Daily fields
+    highs = data.get('highs', {})
+    if highs:
+        flat['new52WeekHigh'] = highs.get('new52WeekHigh')
+        flat['new52WeekLow'] = highs.get('new52WeekLow')
+    rsi = data.get('rsi', {})
+    if rsi:
+        flat['above70'] = rsi.get('above70')
+        flat['below30'] = rsi.get('below30')
+    return flat
+
+
 def build_heatmap_section(rt_history, daily_history):
     """Build 5-day breadth heatmap section."""
     if not rt_history and not daily_history:
         return ''
 
-    # Merge data by date
+    # Merge data by date, extracting nested fields into flat keys
     date_data = {}
     for entry in (rt_history or []):
         d = entry.get('date', '')
         if d:
-            date_data.setdefault(d, {}).update(entry.get('data', {}))
+            date_data.setdefault(d, {}).update(_extract_heatmap_values(entry.get('data', {})))
     for entry in (daily_history or []):
         d = entry.get('date', '')
         if d:
-            date_data.setdefault(d, {}).update(entry.get('data', {}))
+            date_data.setdefault(d, {}).update(_extract_heatmap_values(entry.get('data', {})))
 
     if not date_data:
         return ''
@@ -233,35 +326,38 @@ def build_heatmap_section(rt_history, daily_history):
         for d in sorted_dates
     )
 
-    # Metrics to show
+    # Metrics to show: (key_in_flat_data, label, green_is_good)
     metrics = [
-        ('up4Pct', 'Up >4%', True),
-        ('down4Pct', 'Down >4%', False),
-        ('upDownRatio', 'Up/Down Ratio', True),
-        ('newHighs', '52w Highs', True),
-        ('newLows', '52w Lows', False),
+        ('up4PlusToday', 'Up >4%', True),
+        ('down4PlusToday', 'Down >4%', False),
+        ('ratio5Day', 'Up/Down Ratio', True),
+        ('new52WeekHigh', '52w Highs', True),
+        ('new52WeekLow', '52w Lows', False),
+        ('t2108', 'T2108', True),
     ]
 
     rows = ''
     for key, label, green_is_good in metrics:
         cells = ''
         for d in sorted_dates:
-            val = date_data[d].get(key, '')
-            if val != '' and val is not None:
+            val = date_data[d].get(key)
+            if val is not None and val != '':
                 try:
                     v = float(val)
                     if green_is_good:
                         bg = '#064e3b' if v > 0 else '#7f1d1d'
                     else:
                         bg = '#7f1d1d' if v > 0 else '#064e3b'
+                    display = str(round(v, 2)) if isinstance(v, float) else str(v)
                 except (ValueError, TypeError):
                     bg = '#1f2937'
-                cells += f'<td style="padding:6px 8px;text-align:center;background:{bg};color:#e5e7eb;font-size:12px;">{val}</td>'
+                    display = str(val)
+                cells += f'<td style="padding:6px 8px;text-align:center;background:{bg};color:#e5e7eb;font-size:12px;">{display}</td>'
             else:
                 cells += '<td style="padding:6px 8px;text-align:center;background:#1f2937;color:#6b7280;font-size:12px;">-</td>'
         rows += f'''
         <tr style="border-bottom:1px solid #374151;">
-          <td style="padding:6px 8px;color:#9ca3af;font-size:12px;">{label}</td>
+          <td style="padding:6px 8px;color:#9ca3af;font-size:12px;white-space:nowrap;">{label}</td>
           {cells}
         </tr>
         '''
@@ -280,19 +376,44 @@ def build_heatmap_section(rt_history, daily_history):
     '''
 
 
+def _build_daytrade_groups(daytrade_data):
+    """Convert daytrade cache dict into sorted list of groups with avgChange.
+    daytrade_data.groups is a dict: {ETF_SYMBOL: {name, stocks: [{changePercent, ...}]}}
+    """
+    if not daytrade_data:
+        return []
+
+    groups_dict = daytrade_data.get('groups', {})
+    if not groups_dict or not isinstance(groups_dict, dict):
+        return []
+
+    groups = []
+    for etf_sym, group_info in groups_dict.items():
+        stocks = group_info.get('stocks', [])
+        if not stocks:
+            continue
+        avg_change = sum(s.get('changePercent', 0) for s in stocks) / len(stocks)
+        groups.append({
+            'name': f"{group_info.get('name', etf_sym)} ({etf_sym})",
+            'avgChange': round(avg_change, 2)
+        })
+
+    groups.sort(key=lambda g: g['avgChange'], reverse=True)
+    return groups
+
+
 def build_top_bottom_section(title, groups, key_field, top_n=5):
-    """Build top/bottom N groups section (used for swing & day trade)."""
+    """Build top/bottom N groups section."""
     if not groups:
         return ''
 
-    sorted_groups = sorted(groups, key=lambda g: g.get(key_field, 0), reverse=True)
-    top = sorted_groups[:top_n]
-    bottom = sorted_groups[-top_n:] if len(sorted_groups) > top_n else []
+    top = groups[:top_n]
+    bottom = list(reversed(groups[-top_n:])) if len(groups) > top_n else []
 
-    def make_rows(items, label_prefix):
+    def make_rows(items):
         rows = ''
         for g in items:
-            name = g.get('name', g.get('etf', ''))
+            name = g.get('name', '')
             val = g.get(key_field, 0)
             pct = format_pct(val)
             clr = color_for_value(val)
@@ -304,17 +425,17 @@ def build_top_bottom_section(title, groups, key_field, top_n=5):
             '''
         return rows
 
-    top_rows = make_rows(top, 'Top')
-    bottom_rows = make_rows(bottom, 'Bottom') if bottom else ''
+    top_rows = make_rows(top)
+    bottom_rows = make_rows(bottom) if bottom else ''
 
     bottom_section = ''
     if bottom_rows:
         bottom_section = f'''
-        <h3 style="color:#f87171;font-size:14px;margin:16px 0 8px 0;">Bottom {top_n}</h3>
+        <h3 style="color:#f87171;font-size:14px;margin:16px 0 8px 0;">Bottom {min(top_n, len(bottom))}</h3>
         <table style="width:100%;border-collapse:collapse;background:#1f2937;border-radius:8px;">
           <tr style="border-bottom:1px solid #4b5563;">
             <th style="padding:6px 12px;color:#9ca3af;text-align:left;">Name</th>
-            <th style="padding:6px 12px;color:#9ca3af;text-align:right;">Change</th>
+            <th style="padding:6px 12px;color:#9ca3af;text-align:right;">Avg Change</th>
           </tr>
           {bottom_rows}
         </table>
@@ -323,11 +444,11 @@ def build_top_bottom_section(title, groups, key_field, top_n=5):
     return f'''
     <div style="margin:24px 0;">
       <h2 style="color:#60a5fa;font-size:18px;margin-bottom:12px;">{title}</h2>
-      <h3 style="color:#4ade80;font-size:14px;margin:0 0 8px 0;">Top {top_n}</h3>
+      <h3 style="color:#4ade80;font-size:14px;margin:0 0 8px 0;">Top {min(top_n, len(top))}</h3>
       <table style="width:100%;border-collapse:collapse;background:#1f2937;border-radius:8px;">
         <tr style="border-bottom:1px solid #4b5563;">
           <th style="padding:6px 12px;color:#9ca3af;text-align:left;">Name</th>
-          <th style="padding:6px 12px;color:#9ca3af;text-align:right;">Change</th>
+          <th style="padding:6px 12px;color:#9ca3af;text-align:right;">Avg Change</th>
         </tr>
         {top_rows}
       </table>
@@ -370,15 +491,12 @@ def build_email_html(date_str, summary_text, breadth_rt, breadth_daily,
     # 5-Day Heatmap
     heatmap_section = build_heatmap_section(rt_history, daily_history)
 
-    # Day Trade Top/Bottom
-    daytrade_section = ''
-    if daytrade_data:
-        groups = daytrade_data.get('groups', [])
-        if groups:
-            daytrade_section = build_top_bottom_section(
-                'Day Trading — Top/Bottom Industry Groups',
-                groups, 'avgChange', 5
-            )
+    # Day Trading Top/Bottom
+    daytrade_groups = _build_daytrade_groups(daytrade_data)
+    daytrade_section = build_top_bottom_section(
+        'Day Trading — Top/Bottom Industry Groups',
+        daytrade_groups, 'avgChange', 5
+    )
 
     # Footer
     footer = f'''
@@ -469,18 +587,18 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Initialize schema
         init_schema()
 
-        # Gather data (uses last cached/saved data, which is Friday's)
+        # Gather data (uses last cached/saved data)
         logging.info("Gathering email data...")
 
-        # Market summary
+        # Market summary (from DB, not cache — persists across days)
         summaries = get_market_summaries(limit=1)
         summary_text = summaries[0]['summary_text'] if summaries else None
 
-        # Breadth data
+        # Breadth data (from cache — may be stale on weekends)
         breadth_rt = get_cached('breadth:realtime')
         breadth_daily = get_cached('breadth:daily')
 
-        # Breadth history
+        # Breadth history (from Redis sorted sets — persists)
         rt_history = get_history('breadth:realtime', 5)
         daily_history = get_history('breadth:daily', 5)
 
