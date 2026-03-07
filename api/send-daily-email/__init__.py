@@ -455,9 +455,12 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype='application/json'
             )
 
-        # Check if market was open today
+        # Test mode: bypass market check and send to a specific email
+        test_email = req.params.get('test', '')
+
+        # Check if market was open today (skip in test mode)
         today = today_pst()
-        if not is_market_open(today):
+        if not test_email and not is_market_open(today):
             return func.HttpResponse(
                 json.dumps({'message': f'Market was closed on {today}, no email sent'}),
                 mimetype='application/json'
@@ -466,7 +469,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Initialize schema
         init_schema()
 
-        # Gather data
+        # Gather data (uses last cached/saved data, which is Friday's)
         logging.info("Gathering email data...")
 
         # Market summary
@@ -487,10 +490,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Day trade data
         daytrade_data = get_cached('daytrade:realtime')
 
-        # Get subscribers
-        subscribers = get_paid_subscribers_for_email()
+        # In test mode, send only to the specified email
+        if test_email:
+            subscribers = [{'email': test_email, 'name': 'Test User'}]
+        else:
+            subscribers = get_paid_subscribers_for_email()
+
         total = len(subscribers)
-        logging.info(f"Found {total} opted-in subscribers")
+        logging.info(f"Found {total} {'test' if test_email else 'opted-in'} subscribers")
 
         if total == 0:
             return func.HttpResponse(
