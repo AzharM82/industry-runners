@@ -77,6 +77,8 @@ export function AdminDashboard() {
   // Data Tools state
   const [sectorFixDate, setSectorFixDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [breadthFixDate, setBreadthFixDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [realtimeBreadthFixDate, setRealtimeBreadthFixDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [technicalBreadthFixDate, setTechnicalBreadthFixDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [toolResults, setToolResults] = useState<Record<string, { status: 'idle' | 'loading' | 'success' | 'error'; message?: string }>>({});
 
   const runDataTool = async (toolKey: string, url: string) => {
@@ -947,7 +949,7 @@ export function AdminDashboard() {
                 <h3 className="font-semibold text-white">Fix Historical Data</h3>
                 <span className="text-gray-500 text-sm ml-2">Recalculate data for a specific date</span>
               </div>
-              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
                 {/* Fix Sector NH/NL */}
                 <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
                   <div className="flex items-center justify-between mb-3">
@@ -1028,6 +1030,90 @@ export function AdminDashboard() {
                   {toolResults['breadth-delete']?.message && (
                     <p className={`mt-2 text-xs ${toolResults['breadth-delete']?.status === 'error' ? 'text-red-400' : 'text-green-400'}`}>
                       {toolResults['breadth-delete'].message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Fix Real-Time Breadth */}
+                <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-cyan-400" />
+                      <span className="text-white font-medium">Fix Real-Time Breadth</span>
+                    </div>
+                    {toolResults['realtime-breadth-fix']?.status === 'loading' && (
+                      <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+                    )}
+                    {toolResults['realtime-breadth-fix']?.status === 'success' && (
+                      <CheckCircle className="w-4 h-4 text-green-400" />
+                    )}
+                    {toolResults['realtime-breadth-fix']?.status === 'error' && (
+                      <AlertCircle className="w-4 h-4 text-red-400" />
+                    )}
+                  </div>
+                  <p className="text-gray-400 text-sm mb-3">Backfill real-time breadth (Up/Down 4%, ratios, T2108) from Polygon historical data</p>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Calendar className="w-4 h-4 text-gray-500" />
+                    <input
+                      type="date"
+                      value={realtimeBreadthFixDate}
+                      onChange={(e) => setRealtimeBreadthFixDate(e.target.value)}
+                      className="flex-1 bg-gray-700 text-white px-3 py-1.5 rounded-lg border border-gray-600 focus:outline-none focus:border-cyan-500 text-sm"
+                    />
+                  </div>
+                  <button
+                    onClick={() => runDataTool('realtime-breadth-fix', `/api/fix-realtime-breadth?date=${realtimeBreadthFixDate}`)}
+                    disabled={toolResults['realtime-breadth-fix']?.status === 'loading'}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition disabled:opacity-50"
+                  >
+                    <Wrench className="w-4 h-4" />
+                    Fix {realtimeBreadthFixDate}
+                  </button>
+                  {toolResults['realtime-breadth-fix']?.message && (
+                    <p className={`mt-2 text-xs ${toolResults['realtime-breadth-fix']?.status === 'error' ? 'text-red-400' : 'text-green-400'}`}>
+                      {toolResults['realtime-breadth-fix'].message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Fix Technical Breadth */}
+                <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Activity className="w-5 h-5 text-emerald-400" />
+                      <span className="text-white font-medium">Fix Technical Breadth</span>
+                    </div>
+                    {toolResults['technical-breadth-fix']?.status === 'loading' && (
+                      <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+                    )}
+                    {toolResults['technical-breadth-fix']?.status === 'success' && (
+                      <CheckCircle className="w-4 h-4 text-green-400" />
+                    )}
+                    {toolResults['technical-breadth-fix']?.status === 'error' && (
+                      <AlertCircle className="w-4 h-4 text-red-400" />
+                    )}
+                  </div>
+                  <p className="text-gray-400 text-sm mb-3">Refresh today's Finviz data (52wk H/L, RSI, SMA) and save as snapshot for a date</p>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Calendar className="w-4 h-4 text-gray-500" />
+                    <input
+                      type="date"
+                      value={technicalBreadthFixDate}
+                      onChange={(e) => setTechnicalBreadthFixDate(e.target.value)}
+                      className="flex-1 bg-gray-700 text-white px-3 py-1.5 rounded-lg border border-gray-600 focus:outline-none focus:border-emerald-500 text-sm"
+                    />
+                  </div>
+                  <button
+                    onClick={() => runDataTool('technical-breadth-fix', `/api/fix-breadth?action=refresh&date=${technicalBreadthFixDate}`)}
+                    disabled={toolResults['technical-breadth-fix']?.status === 'loading'}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition disabled:opacity-50"
+                  >
+                    <Wrench className="w-4 h-4" />
+                    Fix {technicalBreadthFixDate}
+                  </button>
+                  {toolResults['technical-breadth-fix']?.message && (
+                    <p className={`mt-2 text-xs ${toolResults['technical-breadth-fix']?.status === 'error' ? 'text-red-400' : 'text-green-400'}`}>
+                      {toolResults['technical-breadth-fix'].message}
                     </p>
                   )}
                 </div>

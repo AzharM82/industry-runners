@@ -144,7 +144,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     elif action == 'refresh':
         # Force refresh from Finviz with detailed debug output
+        # Optional: ?date=YYYY-MM-DD to save snapshot for a specific date
+        snapshot_date = req.params.get('date', today_pst())
         debug_info = []
+        debug_info.append(f'snapshot_date: {snapshot_date}')
         results = {}
 
         universe, universe_method = fetch_total_universe()
@@ -172,7 +175,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         # Build response
         response = {
-            'date': today_pst(),
+            'date': snapshot_date,
             'timestamp': int(now_pst().timestamp() * 1000),
             'universeCount': universe,
             'cached': False,
@@ -202,13 +205,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         # Force save to cache and snapshot
         set_cached('breadth:daily', response, CACHE_TTL_DAILY)
-        save_daily_snapshot('breadth:daily', response)
+        save_daily_snapshot('breadth:daily', response, date=snapshot_date)
 
         return func.HttpResponse(
             json.dumps({
                 'success': True,
                 'action': 'refresh',
-                'date': today_pst(),
+                'date': snapshot_date,
                 'debug_info': debug_info,
                 'data': response
             }, indent=2),
