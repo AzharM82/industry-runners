@@ -12,7 +12,7 @@ import azure.functions as func
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from shared.database import get_user_by_email, update_user_phone, init_schema
+from shared.database import get_user_by_email, update_user_phone, update_email_opt_out, init_schema
 
 
 def get_user_from_auth(req):
@@ -69,7 +69,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     'name': user.get('name', ''),
                     'phone_number': user.get('phone_number'),
                     'has_phone': bool(user.get('phone_number')),
-                    'is_new_user': user.get('is_new_user', False)
+                    'is_new_user': user.get('is_new_user', False),
+                    'email_opt_out': user.get('email_opt_out', False)
                 }),
                 mimetype='application/json'
             )
@@ -82,6 +83,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 return func.HttpResponse(
                     json.dumps({'error': 'Invalid JSON body'}),
                     status_code=400,
+                    mimetype='application/json'
+                )
+
+            # Handle email_opt_out toggle
+            if 'email_opt_out' in body:
+                opt_out = bool(body['email_opt_out'])
+                update_email_opt_out(user_email, opt_out)
+                return func.HttpResponse(
+                    json.dumps({
+                        'success': True,
+                        'message': 'Email preference updated',
+                        'email_opt_out': opt_out
+                    }),
                     mimetype='application/json'
                 )
 

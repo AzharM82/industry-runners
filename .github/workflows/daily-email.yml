@@ -1,0 +1,35 @@
+name: Send Daily Recap Email
+
+on:
+  schedule:
+    # 1 AM UTC Tue-Sat = 8 PM ET Mon-Fri (during EST)
+    # During EDT this runs at 9 PM EDT — still after AI summary (5 PM ET)
+    - cron: '0 1 * * 2-6'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  send-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Daily Recap Email
+        run: |
+          response=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://www.stockproai.net/api/send-daily-email?key=${{ secrets.DAILY_EMAIL_KEY }}")
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | sed '$d')
+          echo "Response code: $http_code"
+          echo "Response body: $body"
+          if [ "$http_code" -ge 500 ]; then
+            echo "Server error, retrying in 30 seconds..."
+            sleep 30
+            response=$(curl -s -w "\n%{http_code}" -X POST \
+              "https://www.stockproai.net/api/send-daily-email?key=${{ secrets.DAILY_EMAIL_KEY }}")
+            http_code=$(echo "$response" | tail -1)
+            body=$(echo "$response" | sed '$d')
+            echo "Retry response code: $http_code"
+            echo "Retry response body: $body"
+          fi
+          if [ "$http_code" -ge 400 ]; then
+            echo "::error::Failed with response code $http_code: $body"
+            exit 1
+          fi

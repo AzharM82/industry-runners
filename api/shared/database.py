@@ -129,6 +129,17 @@ def init_schema():
         END IF;
     END $$;
 
+    -- Add email_opt_out column to users table if it doesn't exist
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'users' AND column_name = 'email_opt_out'
+        ) THEN
+            ALTER TABLE users ADD COLUMN email_opt_out BOOLEAN DEFAULT FALSE;
+        END IF;
+    END $$;
+
     """
 
     try:
@@ -733,3 +744,35 @@ def delete_summaries_by_dates(dates):
     cur.close()
     conn.close()
     return deleted
+
+
+def get_paid_subscribers_for_email():
+    """Get all paid/trialing subscribers who have not opted out of emails."""
+    conn = get_connection()
+    cur = get_cursor(conn)
+    cur.execute("""
+        SELECT u.email, u.name
+        FROM users u
+        JOIN subscriptions s ON s.user_id = u.id
+        WHERE s.status IN ('active', 'trialing')
+          AND s.current_period_end > NOW()
+          AND (u.email_opt_out IS NOT TRUE)
+        GROUP BY u.email, u.name
+    """)
+    rows = [dict(row) for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return rows
+
+
+def update_email_opt_out(email: str, opt_out: bool):
+    """Update user's email opt-out preference."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE users SET email_opt_out = %s, updated_at = NOW()
+        WHERE email = %s
+    """, (opt_out, email.lower()))
+    conn.commit()
+    cur.close()
+    conn.close()

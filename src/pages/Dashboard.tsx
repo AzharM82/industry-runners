@@ -16,6 +16,7 @@ import { PromptRunner } from '../components/PromptRunner';
 import { StartHereView } from '../components/StartHereView';
 import { MarketSummaryView } from '../components/MarketSummaryView';
 import { useAuth, logout } from '../hooks';
+import { Mail } from 'lucide-react';
 
 interface SubscriptionStatus {
   has_access: boolean;
@@ -123,6 +124,8 @@ export function Dashboard() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [phoneSubmitting, setPhoneSubmitting] = useState(false);
+  const [emailOptOut, setEmailOptOut] = useState(false);
+  const [emailToggling, setEmailToggling] = useState(false);
 
   // Check subscription status on mount
   useEffect(() => {
@@ -206,6 +209,23 @@ export function Dashboard() {
     };
     trackLogin();
   }, []);
+
+  // Load email preference
+  useEffect(() => {
+    if (!subscriptionStatus?.has_access) return;
+    const loadEmailPref = async () => {
+      try {
+        const res = await fetch('/api/update-profile');
+        if (res.ok) {
+          const data = await res.json();
+          setEmailOptOut(data.email_opt_out || false);
+        }
+      } catch (err) {
+        console.error('Failed to load email preference:', err);
+      }
+    };
+    loadEmailPref();
+  }, [subscriptionStatus?.has_access]);
 
   // Fetch ALL quotes (swing + day trade) in one request
   const fetchAllQuotes = useCallback(async () => {
@@ -681,6 +701,35 @@ export function Dashboard() {
               >
                 Feedback
               </a>
+              <button
+                onClick={async () => {
+                  if (emailToggling) return;
+                  setEmailToggling(true);
+                  try {
+                    const res = await fetch('/api/update-profile', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ email_opt_out: !emailOptOut })
+                    });
+                    if (res.ok) {
+                      setEmailOptOut(!emailOptOut);
+                    }
+                  } catch (err) {
+                    console.error('Failed to toggle email preference:', err);
+                  } finally {
+                    setEmailToggling(false);
+                  }
+                }}
+                disabled={emailToggling}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  emailOptOut
+                    ? 'bg-gray-700 hover:bg-gray-600 text-gray-400'
+                    : 'bg-green-700 hover:bg-green-600 text-green-200'
+                }`}
+                title={emailOptOut ? 'Daily recap emails: OFF (click to enable)' : 'Daily recap emails: ON (click to disable)'}
+              >
+                <Mail className="w-4 h-4" />
+              </button>
               <button
                 onClick={logout}
                 className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
