@@ -8,7 +8,7 @@ import urllib.request
 
 # Import shared cache module
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from shared.cache import get_cached, set_cached, CACHE_TTL_REALTIME
+from shared.cache import get_cached, set_cached, save_daily_snapshot, should_save_daily_snapshot, CACHE_TTL_REALTIME
 
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
 CACHE_KEY_DAYTRADE = 'daytrade:realtime'
@@ -282,6 +282,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Cache the result (5 minutes TTL)
         set_cached(cache_key, response_data, CACHE_TTL_REALTIME)
         logging.info(f"Cached daytrade data with key {cache_key}")
+
+        # Save daily snapshot (once per day) for email recaps
+        if not excluded_symbols and should_save_daily_snapshot(CACHE_KEY_DAYTRADE):
+            save_daily_snapshot(CACHE_KEY_DAYTRADE, response_data)
 
         return func.HttpResponse(
             json.dumps(response_data),

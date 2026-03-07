@@ -376,15 +376,22 @@ def build_heatmap_section(rt_history, daily_history):
     '''
 
 
-def _build_daytrade_groups(daytrade_data):
-    """Convert daytrade cache dict into sorted list of groups with avgChange.
-    daytrade_data.groups is a dict: {ETF_SYMBOL: {name, stocks: [{changePercent, ...}]}}
-    """
+def _get_daytrade_groups_dict(daytrade_data):
+    """Extract the groups dict from daytrade data, handling both cache and snapshot formats."""
     if not daytrade_data:
-        return []
-
+        return {}
     groups_dict = daytrade_data.get('groups', {})
     if not groups_dict or not isinstance(groups_dict, dict):
+        return {}
+    return groups_dict
+
+
+def _build_daytrade_groups(daytrade_data):
+    """Build day trading groups ranked by avg changePercent (close-to-close).
+    daytrade_data.groups is a dict: {ETF_SYMBOL: {name, stocks: [{changePercent, ...}]}}
+    """
+    groups_dict = _get_daytrade_groups_dict(daytrade_data)
+    if not groups_dict:
         return []
 
     groups = []
@@ -402,7 +409,42 @@ def _build_daytrade_groups(daytrade_data):
     return groups
 
 
-def build_top_bottom_section(title, groups, key_field, top_n=5):
+def _calculate_median(values):
+    """Calculate median of a list of numbers."""
+    if not values:
+        return 0
+    sorted_vals = sorted(values)
+    mid = len(sorted_vals) // 2
+    if len(sorted_vals) % 2 == 0:
+        return (sorted_vals[mid - 1] + sorted_vals[mid]) / 2
+    return sorted_vals[mid]
+
+
+def _build_swing_groups(daytrade_data):
+    """Build swing trading groups ranked by median changeFromOpenPercent (intraday).
+    Uses same ETF groups as day trading but different ranking metric.
+    """
+    groups_dict = _get_daytrade_groups_dict(daytrade_data)
+    if not groups_dict:
+        return []
+
+    groups = []
+    for etf_sym, group_info in groups_dict.items():
+        stocks = group_info.get('stocks', [])
+        if not stocks:
+            continue
+        changes = [s.get('changeFromOpenPercent', 0) for s in stocks]
+        median_change = _calculate_median(changes)
+        groups.append({
+            'name': f"{group_info.get('name', etf_sym)} ({etf_sym})",
+            'medianChange': round(median_change, 2)
+        })
+
+    groups.sort(key=lambda g: g['medianChange'], reverse=True)
+    return groups
+
+
+def build_top_bottom_section(title, groups, key_field, top_n=5, col_label='Avg Change'):
     """Build top/bottom N groups section."""
     if not groups:
         return ''
@@ -434,8 +476,8 @@ def build_top_bottom_section(title, groups, key_field, top_n=5):
         <h3 style="color:#f87171;font-size:14px;margin:16px 0 8px 0;">Bottom {min(top_n, len(bottom))}</h3>
         <table style="width:100%;border-collapse:collapse;background:#1f2937;border-radius:8px;">
           <tr style="border-bottom:1px solid #4b5563;">
-            <th style="padding:6px 12px;color:#9ca3af;text-align:left;">Name</th>
-            <th style="padding:6px 12px;color:#9ca3af;text-align:right;">Avg Change</th>
+            <th style="padding:6px 12px;color:#9ca3af;text-align:left;">Group</th>
+            <th style="padding:6px 12px;color:#9ca3af;text-align:right;">{col_label}</th>
           </tr>
           {bottom_rows}
         </table>
@@ -447,8 +489,8 @@ def build_top_bottom_section(title, groups, key_field, top_n=5):
       <h3 style="color:#4ade80;font-size:14px;margin:0 0 8px 0;">Top {min(top_n, len(top))}</h3>
       <table style="width:100%;border-collapse:collapse;background:#1f2937;border-radius:8px;">
         <tr style="border-bottom:1px solid #4b5563;">
-          <th style="padding:6px 12px;color:#9ca3af;text-align:left;">Name</th>
-          <th style="padding:6px 12px;color:#9ca3af;text-align:right;">Avg Change</th>
+          <th style="padding:6px 12px;color:#9ca3af;text-align:left;">Group</th>
+          <th style="padding:6px 12px;color:#9ca3af;text-align:right;">{col_label}</th>
         </tr>
         {top_rows}
       </table>
@@ -491,11 +533,18 @@ def build_email_html(date_str, summary_text, breadth_rt, breadth_daily,
     # 5-Day Heatmap
     heatmap_section = build_heatmap_section(rt_history, daily_history)
 
-    # Day Trading Top/Bottom
+    # Swing Trading Top/Bottom (ranked by median intraday change)
+    swing_groups = _build_swing_groups(daytrade_data)
+    swing_section = build_top_bottom_section(
+        'Swing Trading — Top/Bottom Groups',
+        swing_groups, 'medianChange', 5, 'Median Change'
+    )
+
+    # Day Trading Top/Bottom (ranked by avg close-to-close change)
     daytrade_groups = _build_daytrade_groups(daytrade_data)
     daytrade_section = build_top_bottom_section(
-        'Day Trading — Top/Bottom Industry Groups',
-        daytrade_groups, 'avgChange', 5
+        'Day Trading — Top/Bottom Groups',
+        daytrade_groups, 'avgChange', 5, 'Avg Change'
     )
 
     # Footer
@@ -526,6 +575,7 @@ def build_email_html(date_str, summary_text, breadth_rt, breadth_daily,
       {breadth_section}
       {sector_section}
       {heatmap_section}
+      {swing_section}
       {daytrade_section}
       {footer}
     </div>
@@ -605,8 +655,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Sector rotation
         sector_data = get_cached('sector-rotation:daily')
 
-        # Day trade data
+        # Day trade data (try cache first, fall back to daily snapshot)
         daytrade_data = get_cached('daytrade:realtime')
+        if not daytrade_data:
+            dt_history = get_history('daytrade:realtime', 1)
+            if dt_history:
+                daytrade_data = dt_history[0].get('data')
+                logging.info("Using daytrade daily snapshot (cache expired)")
 
         # In test mode, send only to the specified email
         if test_email:
