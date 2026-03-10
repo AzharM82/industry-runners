@@ -334,6 +334,28 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     json.dumps({'telemetry': telemetry}, default=json_serializer),
                     mimetype='application/json'
                 )
+            elif report_type == 'reset-email-optout':
+                # Reset email_opt_out for all paid/trialing subscribers
+                conn = get_connection()
+                cur = conn.cursor()
+                cur.execute("""
+                    UPDATE users SET email_opt_out = FALSE, updated_at = NOW()
+                    WHERE id IN (
+                        SELECT u.id FROM users u
+                        JOIN subscriptions s ON s.user_id = u.id
+                        WHERE s.status IN ('active', 'trialing')
+                          AND s.current_period_end > NOW()
+                          AND u.email_opt_out = TRUE
+                    )
+                """)
+                reset_count = cur.rowcount
+                conn.commit()
+                cur.close()
+                conn.close()
+                return func.HttpResponse(
+                    json.dumps({'reset': reset_count, 'message': f'Reset email opt-out for {reset_count} subscribers'}),
+                    mimetype='application/json'
+                )
 
         # Admin sync subscription feature (manual override)
         sync_email = req.params.get('sync', '').lower().strip()
