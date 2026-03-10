@@ -19,7 +19,7 @@ import azure.functions as func
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from shared.database import get_market_summaries, get_paid_subscribers_for_email, init_schema
+from shared.database import get_market_summaries, get_paid_subscribers_for_email, init_schema, log_email_send
 from shared.cache import get_cached, get_history
 from shared.market_calendar import is_market_open
 from shared.timezone import today_pst
@@ -700,13 +700,25 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 if send_email(email, subject, html):
                     sent += 1
                     logging.info(f"Sent email to {email}")
+                    try:
+                        log_email_send(email, today, 'sent')
+                    except Exception as log_err:
+                        logging.warning(f"Failed to log email send for {email}: {log_err}")
                 else:
                     errors += 1
                     error_list.append(email)
+                    try:
+                        log_email_send(email, today, 'failed', 'SMTP send returned False')
+                    except Exception as log_err:
+                        logging.warning(f"Failed to log email failure for {email}: {log_err}")
             except Exception as e:
                 errors += 1
                 error_list.append(email)
                 logging.error(f"Error sending to {email}: {e}")
+                try:
+                    log_email_send(email, today, 'failed', str(e))
+                except Exception as log_err:
+                    logging.warning(f"Failed to log email error for {email}: {log_err}")
 
         result = {
             'sent': sent,

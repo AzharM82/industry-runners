@@ -24,7 +24,8 @@ import {
   CheckCircle,
   AlertCircle,
   TrendingUp,
-  BarChart3
+  BarChart3,
+  Mail
 } from 'lucide-react';
 
 interface DailyReport {
@@ -62,6 +63,25 @@ interface UserStats {
   prompt_count: number;
 }
 
+interface EmailSubscriber {
+  id: string;
+  email: string;
+  name: string | null;
+  email_opt_out: boolean;
+  subscription_status: string;
+  current_period_end: string | null;
+  last_send_date: string | null;
+  last_status: string | null;
+  last_error: string | null;
+}
+
+interface EmailTelemetryDay {
+  send_date: string;
+  total: number;
+  sent: number;
+  failed: number;
+}
+
 export function AdminDashboard() {
   const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
@@ -71,8 +91,13 @@ export function AdminDashboard() {
   const [selectedDate, setSelectedDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
   });
-  const [activeTab, setActiveTab] = useState<'daily' | 'users' | 'tools'>('daily');
+  const [activeTab, setActiveTab] = useState<'daily' | 'users' | 'tools' | 'emails'>('daily');
   const [refreshing, setRefreshing] = useState(false);
+
+  // Email tab state
+  const [emailSubscribers, setEmailSubscribers] = useState<EmailSubscriber[]>([]);
+  const [emailTelemetry, setEmailTelemetry] = useState<EmailTelemetryDay[]>([]);
+  const [emailsLoading, setEmailsLoading] = useState(false);
 
   // Data Tools state
   const [sectorFixDate, setSectorFixDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -214,12 +239,40 @@ export function AdminDashboard() {
     }
   };
 
+  const fetchEmailData = async () => {
+    setEmailsLoading(true);
+    try {
+      const [subsRes, telRes] = await Promise.all([
+        fetch('/api/subscription-status?report=email-subscribers'),
+        fetch('/api/subscription-status?report=email-telemetry')
+      ]);
+      if (subsRes.ok) {
+        const data = await subsRes.json();
+        setEmailSubscribers(data.subscribers || []);
+      }
+      if (telRes.ok) {
+        const data = await telRes.json();
+        setEmailTelemetry(data.telemetry || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch email data:', err);
+    } finally {
+      setEmailsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (isAdmin) {
       fetchReport(selectedDate);
       fetchUsers();
     }
   }, [isAdmin, selectedDate]);
+
+  useEffect(() => {
+    if (isAdmin && activeTab === 'emails') {
+      fetchEmailData();
+    }
+  }, [isAdmin, activeTab]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -359,6 +412,17 @@ export function AdminDashboard() {
           >
             <Wrench className="w-4 h-4" />
             Data Tools
+          </button>
+          <button
+            onClick={() => setActiveTab('emails')}
+            className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${
+              activeTab === 'emails'
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-400 hover:text-white hover:bg-gray-800'
+            }`}
+          >
+            <Mail className="w-4 h-4" />
+            Emails
           </button>
         </div>
 
@@ -1165,6 +1229,177 @@ export function AdminDashboard() {
                 </div>
               </div>
             </div>
+          </>
+        )}
+
+        {activeTab === 'emails' && (
+          <>
+            {emailsLoading ? (
+              <div className="bg-gray-800 rounded-xl p-12 border border-gray-700 text-center">
+                <div className="text-gray-400">Loading email data...</div>
+              </div>
+            ) : (
+              <>
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm text-gray-400">Subscribers</span>
+                      <Mail className="w-5 h-5 text-green-400" />
+                    </div>
+                    <div className="text-3xl font-bold text-green-400">
+                      {emailSubscribers.filter(s => !s.email_opt_out).length}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">opted in</div>
+                  </div>
+
+                  <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm text-gray-400">Opted Out</span>
+                      <X className="w-5 h-5 text-red-400" />
+                    </div>
+                    <div className="text-3xl font-bold text-red-400">
+                      {emailSubscribers.filter(s => s.email_opt_out).length}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">unsubscribed</div>
+                  </div>
+
+                  <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm text-gray-400">Last Send</span>
+                      <CheckCircle className="w-5 h-5 text-blue-400" />
+                    </div>
+                    <div className="text-3xl font-bold text-blue-400">
+                      {emailTelemetry.length > 0 ? emailTelemetry[0].sent : 0}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {emailTelemetry.length > 0 ? emailTelemetry[0].send_date : 'no sends yet'}
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm text-gray-400">Last Failed</span>
+                      <AlertCircle className="w-5 h-5 text-yellow-400" />
+                    </div>
+                    <div className="text-3xl font-bold text-yellow-400">
+                      {emailTelemetry.length > 0 ? emailTelemetry[0].failed : 0}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {emailTelemetry.length > 0 ? emailTelemetry[0].send_date : 'no sends yet'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Subscribers Table */}
+                <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+                  <div className="p-4 border-b border-gray-700 flex items-center gap-2">
+                    <Mail className="w-5 h-5 text-blue-400" />
+                    <h3 className="font-semibold text-white">Email Subscribers ({emailSubscribers.length})</h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-900/50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Email</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Status</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Opt Out</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Expires</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Last Sent</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Delivery</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-700">
+                        {emailSubscribers.map((sub) => (
+                          <tr key={sub.id} className="hover:bg-gray-700/30">
+                            <td className="px-4 py-3 text-white font-medium">{sub.email}</td>
+                            <td className="px-4 py-3 text-gray-400 text-sm">{sub.name || '-'}</td>
+                            <td className="px-4 py-3 text-center">
+                              {sub.subscription_status === 'active' ? (
+                                <span className="px-2 py-1 bg-green-900/30 text-green-400 rounded text-xs font-medium">PAID</span>
+                              ) : (
+                                <span className="px-2 py-1 bg-blue-900/30 text-blue-400 rounded text-xs font-medium">TRIAL</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {sub.email_opt_out ? (
+                                <span className="text-red-400 text-xs font-medium">YES</span>
+                              ) : (
+                                <span className="text-green-400 text-xs font-medium">NO</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-gray-400 text-sm">
+                              {sub.current_period_end
+                                ? new Date(sub.current_period_end).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-gray-400 text-sm">
+                              {sub.last_send_date || '-'}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {sub.last_status === 'sent' ? (
+                                <CheckCircle className="w-4 h-4 text-green-400 inline" />
+                              ) : sub.last_status === 'failed' ? (
+                                <span title={sub.last_error || 'Failed'}>
+                                  <AlertCircle className="w-4 h-4 text-red-400 inline" />
+                                </span>
+                              ) : (
+                                <span className="text-gray-500 text-xs">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                        {emailSubscribers.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
+                              No active subscribers found
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Telemetry Table */}
+                <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+                  <div className="p-4 border-b border-gray-700 flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5 text-purple-400" />
+                    <h3 className="font-semibold text-white">Send Telemetry (Last 30 Days)</h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-900/50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Date</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Total</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Sent</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Failed</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-700">
+                        {emailTelemetry.map((day) => (
+                          <tr key={day.send_date} className="hover:bg-gray-700/30">
+                            <td className="px-4 py-3 text-white text-sm">{day.send_date}</td>
+                            <td className="px-4 py-3 text-center text-gray-300">{day.total}</td>
+                            <td className="px-4 py-3 text-center text-green-400">{day.sent}</td>
+                            <td className="px-4 py-3 text-center text-red-400">{day.failed}</td>
+                          </tr>
+                        ))}
+                        {emailTelemetry.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="px-4 py-12 text-center text-gray-500">
+                              No email sends recorded yet
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
           </>
         )}
       </div>

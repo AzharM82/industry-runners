@@ -82,6 +82,17 @@ def init_schema():
         generated_at TIMESTAMP DEFAULT NOW()
     );
 
+    -- Email log table (tracks daily recap email sends)
+    CREATE TABLE IF NOT EXISTS email_log (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        email VARCHAR(255) NOT NULL,
+        send_date DATE NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'sent',
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+    );
+
     -- Create indexes
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_users_stripe_customer ON users(stripe_customer_id);
@@ -91,6 +102,8 @@ def init_schema():
     CREATE INDEX IF NOT EXISTS idx_user_logins_created ON user_logins(created_at);
     CREATE INDEX IF NOT EXISTS idx_user_logins_user ON user_logins(user_id);
     CREATE INDEX IF NOT EXISTS idx_market_summaries_date ON market_summaries(summary_date);
+    CREATE INDEX IF NOT EXISTS idx_email_log_date ON email_log(send_date);
+    CREATE INDEX IF NOT EXISTS idx_email_log_email ON email_log(email);
     """
 
     # Migration SQL for existing tables
@@ -776,3 +789,72 @@ def update_email_opt_out(email: str, opt_out: bool):
     conn.commit()
     cur.close()
     conn.close()
+
+
+def log_email_send(email: str, send_date: str, status: str, error_message: str = None):
+    """Log an email send attempt to email_log table."""
+    conn = get_connection()
+    cur = conn.cursor()
+    # Look up user_id by email
+    cur.execute("SELECT id FROM users WHERE email = %s", (email.lower(),))
+    row = cur.fetchone()
+    user_id = row[0] if row else None
+    cur.execute("""
+        INSERT INTO email_log (user_id, email, send_date, status, error_message)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (user_id, email.lower(), send_date, status, error_message))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_email_subscribers_report():
+    """Get all active/trialing subscribers with subscription info, opt-out status, and latest email delivery."""
+    conn = get_connection()
+    cur = get_cursor(conn)
+    cur.execute("""
+        SELECT
+            u.id, u.email, u.name, u.email_opt_out,
+            s.status AS subscription_status,
+            s.current_period_end,
+            el.send_date AS last_send_date,
+            el.status AS last_status,
+            el.error_message AS last_error
+        FROM users u
+        JOIN subscriptions s ON s.user_id = u.id
+            AND s.status IN ('active', 'trialing')
+            AND s.current_period_end > NOW()
+        LEFT JOIN LATERAL (
+            SELECT send_date, status, error_message
+            FROM email_log
+            WHERE email_log.email = u.email
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) el ON true
+        ORDER BY u.email
+    """)
+    rows = [dict(row) for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return rows
+
+
+def get_email_telemetry(days: int = 30):
+    """Get daily aggregated email send stats for the last N days."""
+    conn = get_connection()
+    cur = get_cursor(conn)
+    cur.execute("""
+        SELECT
+            send_date,
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE status = 'sent') AS sent,
+            COUNT(*) FILTER (WHERE status = 'failed') AS failed
+        FROM email_log
+        WHERE send_date >= CURRENT_DATE - %s
+        GROUP BY send_date
+        ORDER BY send_date DESC
+    """, (days,))
+    rows = [dict(row) for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return rows

@@ -319,6 +319,21 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     json.dumps({'users': users}, default=json_serializer),
                     mimetype='application/json'
                 )
+            elif report_type == 'email-subscribers':
+                from shared.database import get_email_subscribers_report
+                subscribers = get_email_subscribers_report()
+                return func.HttpResponse(
+                    json.dumps({'subscribers': subscribers}, default=json_serializer),
+                    mimetype='application/json'
+                )
+            elif report_type == 'email-telemetry':
+                from shared.database import get_email_telemetry
+                days = int(req.params.get('days', '30'))
+                telemetry = get_email_telemetry(days)
+                return func.HttpResponse(
+                    json.dumps({'telemetry': telemetry}, default=json_serializer),
+                    mimetype='application/json'
+                )
 
         # Admin sync subscription feature (manual override)
         sync_email = req.params.get('sync', '').lower().strip()
