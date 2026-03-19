@@ -20,16 +20,16 @@ export function Hero({ onGetStarted }: HeroProps) {
 
         <button
           onClick={onGetStarted}
-          className="inline-flex items-center gap-2 bg-gray-900 hover:bg-gray-800 text-white px-8 py-4 rounded-xl font-semibold text-lg transition-colors"
+          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-xl font-semibold text-lg transition-colors"
         >
-          Get Started
+          Start Free 3-Day Trial
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
           </svg>
         </button>
 
         <p className="mt-4 text-sm text-gray-500">
-          $6.99/month · Cancel anytime
+          No credit card required · Then $6.99/month
         </p>
       </div>
     </section>

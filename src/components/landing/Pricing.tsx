@@ -21,6 +21,11 @@ export function Pricing({ onSubscribe }: PricingProps) {
             </div>
           </div>
 
+          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-center">
+            <span className="text-blue-700 font-semibold">3-day free trial</span>
+            <span className="text-blue-600"> · 3 AI prompts per type to explore</span>
+          </div>
+
           <ul className="space-y-4 mb-8">
             {[
               '30 ChartGPT analyses per month',
@@ -41,13 +46,13 @@ export function Pricing({ onSubscribe }: PricingProps) {
 
           <button
             onClick={onSubscribe}
-            className="w-full bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-xl font-semibold text-lg transition-colors"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-semibold text-lg transition-colors"
           >
-            Subscribe Now
+            Start Free 3-Day Trial
           </button>
 
           <p className="text-center text-sm text-gray-500 mt-4">
-            No refunds. Cancel anytime.
+            No credit card required · Then $6.99/month · Cancel anytime
           </p>
         </div>
       </div>
