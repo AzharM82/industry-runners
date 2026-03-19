@@ -14,20 +14,21 @@ import azure.functions as func
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.database import (
-    get_user_by_email, 
-    get_subscription, 
-    get_usage_count, 
-    init_schema, 
-    get_connection, 
-    get_cursor, 
-    create_trial_subscription, 
-    is_user_eligible_for_trial, 
-    get_or_create_user, 
-    update_user_stripe_customer, 
-    create_subscription, 
+    get_user_by_email,
+    get_subscription,
+    get_usage_count,
+    init_schema,
+    get_connection,
+    get_cursor,
+    create_trial_subscription,
+    is_user_eligible_for_trial,
+    get_or_create_user,
+    get_or_create_user_with_trial,
+    update_user_stripe_customer,
+    create_subscription,
     get_subscription_by_stripe_id
 )
-from shared.admin import is_admin, MONTHLY_LIMIT
+from shared.admin import is_admin, MONTHLY_LIMIT, TRIAL_PROMPT_LIMIT
 import stripe
 
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
@@ -466,20 +467,31 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype='application/json'
             )
 
-        # Get user from database
+        # Get user from database, or create if first visit
         user = get_user_by_email(user_email)
 
         if not user:
-            return func.HttpResponse(
-                json.dumps({
-                    'has_access': False,
-                    'is_admin': False,
-                    'subscription': None,
-                    'is_new_user': True,
-                    'reason': 'User not found. Please log in first.'
-                }),
-                mimetype='application/json'
+            # First visit — create user with is_new_user=True so trial can be created
+            auth_provider = auth_user.get('identityProvider', 'google').lower()
+            if auth_provider == 'aad':
+                auth_provider = 'microsoft'
+            user = get_or_create_user_with_trial(
+                email=user_email,
+                name=user_email.split('@')[0],
+                auth_provider=auth_provider,
+                auth_provider_id=auth_user.get('userId', '')
             )
+            if not user:
+                return func.HttpResponse(
+                    json.dumps({
+                        'has_access': False,
+                        'is_admin': False,
+                        'subscription': None,
+                        'is_new_user': True,
+                        'reason': 'Failed to create user. Please try again.'
+                    }),
+                    mimetype='application/json'
+                )
 
         user_id = str(user['id'])
         sync_debug = None
@@ -531,9 +543,15 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Determine access - need active subscription (trial or paid)
         has_access = subscription is not None
 
+        # Check if user is on trial (for prompt limits)
+        is_on_trial = (
+            subscription is not None
+            and (subscription.get('stripe_subscription_id') or '').startswith('trial_')
+        )
+
         # Get usage for current month (PST timezone)
         month_year = now_pst().strftime('%Y-%m')
-        monthly_limit = MONTHLY_LIMIT
+        monthly_limit = TRIAL_PROMPT_LIMIT if is_on_trial else MONTHLY_LIMIT
 
         usage = {}
         for prompt_type in ['chartgpt', 'deep-research', 'halal']:
@@ -580,7 +598,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         if subscription and (subscription.get('stripe_subscription_id') or '').startswith('trial_'):
             trial_end = subscription.get('current_period_end')
             if trial_end:
-                response['trial_message'] = f'You are on a 3-day free trial. Trial ends {trial_end.strftime("%B %d, %Y")}.'
+                response['trial_message'] = f'You are on a 3-day free trial ({TRIAL_PROMPT_LIMIT} AI prompts per type). Trial ends {trial_end.strftime("%B %d, %Y")}.'
 
         return func.HttpResponse(
             json.dumps(response),

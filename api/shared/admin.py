@@ -19,6 +19,9 @@ ADMIN_EMAILS = [
 # Monthly limit per prompt type (for subscribers after beta)
 MONTHLY_LIMIT = 30
 
+# Trial users get fewer prompts per type
+TRIAL_PROMPT_LIMIT = 3
+
 # Admin users get unlimited prompts
 ADMIN_MONTHLY_LIMIT = 999999
 
@@ -32,10 +35,12 @@ def is_beta_mode() -> bool:
     """Check if beta mode is enabled."""
     return BETA_MODE
 
-def get_monthly_limit(email: str) -> int:
+def get_monthly_limit(email: str, is_trial: bool = False) -> int:
     """Get monthly limit for a user."""
     if is_admin(email):
         return ADMIN_MONTHLY_LIMIT
     if BETA_MODE:
         return BETA_PROMPT_LIMIT
+    if is_trial:
+        return TRIAL_PROMPT_LIMIT
     return MONTHLY_LIMIT

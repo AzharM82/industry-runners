@@ -405,8 +405,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Check access
         admin = is_admin(user_email)
         beta_mode = is_beta_mode()
-        monthly_limit = get_monthly_limit(user_email)
         month_year = datetime.now().strftime('%Y-%m')
+        is_trial_user = False
 
         if not admin:
             # Get user from database
@@ -439,6 +439,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                         status_code=403,
                         mimetype='application/json'
                     )
+                # Check if on trial
+                is_trial_user = (subscription.get('stripe_subscription_id') or '').startswith('trial_')
 
             user_id = str(user['id'])
         else:
@@ -447,10 +449,12 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             user = get_or_create_user(user_email, user_email.split('@')[0])
             user_id = str(user['id'])
 
+        monthly_limit = get_monthly_limit(user_email, is_trial=is_trial_user)
+
         # Check usage limit
         usage_count = get_usage_count(user_id, prompt_type, month_year)
         if usage_count >= monthly_limit:
-            error_msg = f'Beta limit reached ({monthly_limit} free prompts)' if beta_mode else f'Monthly limit reached ({monthly_limit} prompts)'
+            error_msg = f'Trial limit reached ({monthly_limit} free prompts per type)' if is_trial_user else (f'Beta limit reached ({monthly_limit} free prompts)' if beta_mode else f'Monthly limit reached ({monthly_limit} prompts)')
             return func.HttpResponse(
                 json.dumps({
                     'error': error_msg,
