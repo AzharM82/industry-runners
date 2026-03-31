@@ -93,6 +93,29 @@ def init_schema():
         created_at TIMESTAMP DEFAULT NOW()
     );
 
+    -- Investment stocks table (long-term portfolio)
+    CREATE TABLE IF NOT EXISTS investment_stocks (
+        id SERIAL PRIMARY KEY,
+        ticker VARCHAR(10) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        added_quarter VARCHAR(10) NOT NULL,
+        added_month VARCHAR(7) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    -- Investment buys table (monthly purchases)
+    CREATE TABLE IF NOT EXISTS investment_buys (
+        id SERIAL PRIMARY KEY,
+        stock_id INTEGER REFERENCES investment_stocks(id) ON DELETE CASCADE,
+        month VARCHAR(7) NOT NULL,
+        buy_date DATE NOT NULL,
+        shares NUMERIC(12,4) NOT NULL,
+        price_per_share NUMERIC(12,4) NOT NULL,
+        amount NUMERIC(12,2) NOT NULL,
+        locked BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW()
+    );
+
     -- Create indexes
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_users_stripe_customer ON users(stripe_customer_id);
@@ -104,6 +127,8 @@ def init_schema():
     CREATE INDEX IF NOT EXISTS idx_market_summaries_date ON market_summaries(summary_date);
     CREATE INDEX IF NOT EXISTS idx_email_log_date ON email_log(send_date);
     CREATE INDEX IF NOT EXISTS idx_email_log_email ON email_log(email);
+    CREATE INDEX IF NOT EXISTS idx_investment_stocks_ticker ON investment_stocks(ticker);
+    CREATE INDEX IF NOT EXISTS idx_investment_buys_stock ON investment_buys(stock_id);
     """
 
     # Migration SQL for existing tables
@@ -858,3 +883,143 @@ def get_email_telemetry(days: int = 30):
     cur.close()
     conn.close()
     return rows
+
+
+# ── Investment Portfolio (PostgreSQL) ──────────────────────────────────────
+
+def get_investment_portfolio():
+    """Get the full investment portfolio (stocks + buys) as the JSON shape the frontend expects."""
+    conn = get_connection()
+    cur = get_cursor(conn)
+
+    cur.execute("SELECT * FROM investment_stocks ORDER BY id")
+    stocks_rows = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("SELECT * FROM investment_buys ORDER BY month")
+    buys_rows = [dict(r) for r in cur.fetchall()]
+
+    cur.close()
+    conn.close()
+
+    # Group buys by stock_id
+    buys_by_stock = {}
+    for b in buys_rows:
+        sid = b['stock_id']
+        buys_by_stock.setdefault(sid, []).append({
+            'month': b['month'],
+            'date': b['buy_date'].isoformat() if hasattr(b['buy_date'], 'isoformat') else str(b['buy_date']),
+            'shares': float(b['shares']),
+            'pricePerShare': float(b['price_per_share']),
+            'amount': float(b['amount']),
+            'locked': b['locked']
+        })
+
+    stocks = []
+    for s in stocks_rows:
+        stocks.append({
+            'id': s['id'],
+            'ticker': s['ticker'],
+            'name': s['name'],
+            'addedQuarter': s['added_quarter'],
+            'addedMonth': s['added_month'],
+            'currentPrice': 0,
+            'monthlyBuys': buys_by_stock.get(s['id'], [])
+        })
+
+    return stocks
+
+
+def save_investment_portfolio(stocks_data):
+    """
+    Replace the entire portfolio with the given data.
+    Returns the list of changes (added/removed stocks, new buys) for email notifications.
+    """
+    conn = get_connection()
+    cur = get_cursor(conn)
+
+    # Load current state for diff
+    cur.execute("SELECT id, ticker FROM investment_stocks")
+    old_tickers = {r['ticker']: r['id'] for r in cur.fetchall()}
+
+    cur.execute("SELECT stock_id, month FROM investment_buys")
+    old_buys = set()
+    for r in cur.fetchall():
+        old_buys.add((r['stock_id'], r['month']))
+
+    # Rebuild tables
+    cur.execute("DELETE FROM investment_buys")
+    cur.execute("DELETE FROM investment_stocks")
+
+    changes = []
+    new_tickers = set()
+
+    for s in stocks_data:
+        ticker = s.get('ticker', '').upper()
+        new_tickers.add(ticker)
+
+        cur.execute("""
+            INSERT INTO investment_stocks (ticker, name, added_quarter, added_month)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+        """, (ticker, s.get('name', ''), s.get('addedQuarter', ''), s.get('addedMonth', '')))
+        new_id = cur.fetchone()['id']
+
+        if ticker not in old_tickers:
+            changes.append(f"New stock added: {ticker} ({s.get('name', '')})")
+
+        for buy in s.get('monthlyBuys', []):
+            cur.execute("""
+                INSERT INTO investment_buys (stock_id, month, buy_date, shares, price_per_share, amount, locked)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                new_id,
+                buy.get('month', ''),
+                buy.get('date', ''),
+                buy.get('shares', 0),
+                buy.get('pricePerShare', 0),
+                buy.get('amount', 0),
+                buy.get('locked', True)
+            ))
+
+            old_stock_id = old_tickers.get(ticker)
+            if old_stock_id and (old_stock_id, buy.get('month', '')) not in old_buys:
+                changes.append(f"New buy recorded: {ticker} — {buy.get('shares', 0)} shares @ ${buy.get('pricePerShare', 0):.2f} ({buy.get('month', '')})")
+
+    # Check for removed stocks
+    for old_ticker in old_tickers:
+        if old_ticker not in new_tickers:
+            changes.append(f"Stock removed: {old_ticker}")
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return changes
+
+
+def get_investment_settings():
+    """Get investment settings (lightweight — kept in Redis)."""
+    from .cache import get_redis_client
+    import json as _json
+    client = get_redis_client()
+    if client:
+        try:
+            data = client.get('investments:settings:v2')
+            if data:
+                return _json.loads(data)
+        except Exception:
+            pass
+    return {'monthlyInvestment': 5000, 'startDate': '2026-01', 'endDate': '2028-12'}
+
+
+def save_investment_settings(settings):
+    """Save investment settings to Redis."""
+    from .cache import get_redis_client
+    import json as _json
+    client = get_redis_client()
+    if client:
+        try:
+            client.set('investments:settings:v2', _json.dumps(settings))
+            return True
+        except Exception:
+            pass
+    return False
