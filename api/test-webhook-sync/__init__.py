@@ -137,9 +137,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         # Step 8: Create subscription
         try:
-            # Get period timestamps - handle both attribute and dict access
-            period_start = getattr(stripe_sub, 'current_period_start', None) or stripe_sub.get('current_period_start')
-            period_end = getattr(stripe_sub, 'current_period_end', None) or stripe_sub.get('current_period_end')
+            # Period timestamps moved to items.data[0] in newer Stripe API
+            from shared.stripe_helpers import get_subscription_period
+            period_start, period_end = get_subscription_period(stripe_sub)
             steps.append(f"8b. Period start: {period_start}, end: {period_end}")
 
             new_sub = create_subscription(

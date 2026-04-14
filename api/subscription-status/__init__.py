@@ -129,9 +129,9 @@ def auto_sync_stripe_subscription(email: str, user_id: str) -> tuple:
         conn.close()
 
         # Create the subscription in our database
-        # Get period timestamps - handle both attribute and dict access for different Stripe SDK versions
-        period_start = getattr(stripe_sub, 'current_period_start', None) or stripe_sub.get('current_period_start')
-        period_end = getattr(stripe_sub, 'current_period_end', None) or stripe_sub.get('current_period_end')
+        # Period timestamps live on subscription.items.data[0] in newer Stripe API
+        from shared.stripe_helpers import get_subscription_period
+        period_start, period_end = get_subscription_period(stripe_sub)
 
         new_sub = create_subscription(
             user_id=user_id,
@@ -402,9 +402,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 # Update stripe customer ID
                 update_user_stripe_customer(sync_email, customer_id)
 
-                # Get timestamps from Stripe subscription
-                period_start = getattr(stripe_sub, 'current_period_start', None) or int(datetime.now().timestamp())
-                period_end = getattr(stripe_sub, 'current_period_end', None) or int(datetime.now().timestamp()) + (30 * 24 * 60 * 60)
+                # Get timestamps from Stripe subscription (newer API moved these to items.data[0])
+                from shared.stripe_helpers import get_subscription_period
+                _ps, _pe = get_subscription_period(stripe_sub)
+                period_start = _ps or int(datetime.now().timestamp())
+                period_end = _pe or (int(datetime.now().timestamp()) + (30 * 24 * 60 * 60))
 
                 # Delete any existing subscription with this stripe_id and recreate
                 conn = get_connection()

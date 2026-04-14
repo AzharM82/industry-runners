@@ -134,12 +134,15 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         # Create subscription in our database
+        # Period timestamps moved to items.data[0] in newer Stripe API
+        from shared.stripe_helpers import get_subscription_period
+        period_start, period_end = get_subscription_period(stripe_sub)
         create_subscription(
             user_id=str(user['id']),
             stripe_subscription_id=stripe_sub.id,
             status=stripe_sub.status,
-            period_start=stripe_sub.current_period_start,
-            period_end=stripe_sub.current_period_end
+            period_start=period_start,
+            period_end=period_end
         )
 
         logging.info(f"Synced subscription {stripe_sub.id} for {target_email}")

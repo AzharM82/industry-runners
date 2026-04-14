@@ -136,7 +136,8 @@ def sync_subscription_from_stripe(user_id: str, email: str, subscription_id: str
         if existing:
             # Update existing subscription
             logging.info(f"  Step 3: Subscription exists, updating...")
-            period_end = getattr(stripe_sub, 'current_period_end', None) or stripe_sub.get('current_period_end')
+            from shared.stripe_helpers import get_subscription_period
+            _, period_end = get_subscription_period(stripe_sub)
             cancel_at = getattr(stripe_sub, 'cancel_at_period_end', False) or stripe_sub.get('cancel_at_period_end', False)
             update_subscription(
                 stripe_subscription_id=subscription_id,
@@ -163,9 +164,9 @@ def sync_subscription_from_stripe(user_id: str, email: str, subscription_id: str
             logging.info(f"  Step 4 SUCCESS: Deleted {deleted_trials} trial subscription(s)")
 
             # Create new subscription
-            # Get period timestamps - handle both attribute and dict access for different Stripe SDK versions
-            period_start = getattr(stripe_sub, 'current_period_start', None) or stripe_sub.get('current_period_start')
-            period_end = getattr(stripe_sub, 'current_period_end', None) or stripe_sub.get('current_period_end')
+            # Period timestamps come from subscription.items.data[0] in newer Stripe API
+            from shared.stripe_helpers import get_subscription_period
+            period_start, period_end = get_subscription_period(stripe_sub)
 
             logging.info(f"  Step 5: Creating subscription in database")
             logging.info(f"    user_id: {user_id}")
@@ -332,9 +333,10 @@ def handle_subscription_created(subscription):
 
 def handle_subscription_updated(subscription):
     """Handle subscription update."""
+    from shared.stripe_helpers import get_subscription_period
     subscription_id = subscription.get('id')
     status = subscription.get('status')
-    period_end = subscription.get('current_period_end')
+    _, period_end = get_subscription_period(subscription)
     cancel_at_period_end = subscription.get('cancel_at_period_end', False)
     customer_id = subscription.get('customer')
 
@@ -368,8 +370,9 @@ def handle_subscription_updated(subscription):
 
 def handle_subscription_deleted(subscription):
     """Handle subscription cancellation."""
+    from shared.stripe_helpers import get_subscription_period
     subscription_id = subscription.get('id')
-    period_end = subscription.get('current_period_end')
+    _, period_end = get_subscription_period(subscription)
 
     logging.info(f"=== SUBSCRIPTION DELETED: {subscription_id} ===")
 
