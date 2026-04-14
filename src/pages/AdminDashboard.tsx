@@ -1032,7 +1032,18 @@ export function AdminDashboard() {
                       setSubDebugResult(null);
                       try {
                         const r = await fetch(`/api/admin-debug-subscription?email=${encodeURIComponent(subDebugEmail)}`);
-                        const data = await r.json();
+                        const text = await r.text();
+                        let data: unknown;
+                        try {
+                          data = JSON.parse(text);
+                        } catch {
+                          data = {
+                            _http_status: r.status,
+                            _content_type: r.headers.get('content-type'),
+                            _raw_body_preview: text.slice(0, 500) || '(empty body)',
+                            _note: 'Response was not valid JSON — likely endpoint not found or auth redirect.',
+                          };
+                        }
                         setSubDebugResult(data);
                       } catch (e) {
                         setSubDebugResult({ error: String(e) });
@@ -1057,7 +1068,18 @@ export function AdminDashboard() {
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ email: subDebugEmail }),
                         });
-                        const data = await r.json();
+                        const text = await r.text();
+                        let data: unknown;
+                        try {
+                          data = JSON.parse(text);
+                        } catch {
+                          data = {
+                            _http_status: r.status,
+                            _content_type: r.headers.get('content-type'),
+                            _raw_body_preview: text.slice(0, 500) || '(empty body)',
+                            _note: 'Response was not valid JSON — likely endpoint not found or auth redirect.',
+                          };
+                        }
                         setSubDebugResult(data);
                       } catch (e) {
                         setSubDebugResult({ error: String(e) });
