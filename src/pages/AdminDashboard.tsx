@@ -105,6 +105,9 @@ export function AdminDashboard() {
   const [realtimeBreadthFixDate, setRealtimeBreadthFixDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [technicalBreadthFixDate, setTechnicalBreadthFixDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [toolResults, setToolResults] = useState<Record<string, { status: 'idle' | 'loading' | 'success' | 'error'; message?: string }>>({});
+  const [subDebugEmail, setSubDebugEmail] = useState('');
+  const [subDebugResult, setSubDebugResult] = useState<unknown>(null);
+  const [subDebugLoading, setSubDebugLoading] = useState<'idle' | 'debug' | 'sync'>('idle');
 
   const runDataTool = async (toolKey: string, url: string) => {
     setToolResults(prev => ({ ...prev, [toolKey]: { status: 'loading' } }));
@@ -1003,6 +1006,81 @@ export function AdminDashboard() {
                     </p>
                   )}
                 </div>
+              </div>
+            </div>
+
+            {/* Subscription Debug & Sync */}
+            <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+              <div className="p-4 border-b border-gray-700 flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-purple-400" />
+                <h3 className="font-semibold text-white">Subscription Debug & Sync</h3>
+                <span className="text-gray-500 text-sm ml-2">Debug paid-but-paywall issues for a specific user</span>
+              </div>
+              <div className="p-4 space-y-3">
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={subDebugEmail}
+                    onChange={(e) => setSubDebugEmail(e.target.value)}
+                    placeholder="user@email.com"
+                    className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!subDebugEmail) return;
+                      setSubDebugLoading('debug');
+                      setSubDebugResult(null);
+                      try {
+                        const r = await fetch(`/api/admin-debug-subscription?email=${encodeURIComponent(subDebugEmail)}`);
+                        const data = await r.json();
+                        setSubDebugResult(data);
+                      } catch (e) {
+                        setSubDebugResult({ error: String(e) });
+                      } finally {
+                        setSubDebugLoading('idle');
+                      }
+                    }}
+                    disabled={!subDebugEmail || subDebugLoading !== 'idle'}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {subDebugLoading === 'debug' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                    Debug
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!subDebugEmail) return;
+                      setSubDebugLoading('sync');
+                      setSubDebugResult(null);
+                      try {
+                        const r = await fetch('/api/admin-sync-subscription', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ email: subDebugEmail }),
+                        });
+                        const data = await r.json();
+                        setSubDebugResult(data);
+                      } catch (e) {
+                        setSubDebugResult({ error: String(e) });
+                      } finally {
+                        setSubDebugLoading('idle');
+                      }
+                    }}
+                    disabled={!subDebugEmail || subDebugLoading !== 'idle'}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {subDebugLoading === 'sync' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wrench className="w-4 h-4" />}
+                    Force Sync from Stripe
+                  </button>
+                </div>
+                <p className="text-gray-400 text-xs">
+                  <strong>Debug</strong>: Shows DB state (user record, all subscriptions, active sub). &nbsp;
+                  <strong>Force Sync</strong>: Looks up customer in Stripe by email and creates/links the subscription in our DB.
+                </p>
+                {subDebugResult !== null && (
+                  <pre className="bg-gray-950 border border-gray-700 rounded-lg p-3 text-xs text-green-300 overflow-x-auto max-h-96 overflow-y-auto">
+                    {JSON.stringify(subDebugResult, null, 2)}
+                  </pre>
+                )}
               </div>
             </div>
 
