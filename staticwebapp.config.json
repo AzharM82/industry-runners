@@ -127,6 +127,10 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/api/admin-sync-all-stripe",
+      "allowedRoles": ["authenticated"]
+    },
+    {
       "route": "/api/test-webhook-sync",
       "allowedRoles": ["authenticated"]
     },
