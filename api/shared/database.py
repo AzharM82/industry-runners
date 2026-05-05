@@ -456,15 +456,30 @@ def get_daily_report(date: str = None):
 
 
 def get_all_users():
-    """Get all users with their stats."""
+    """Get all users with their stats and current subscription status.
+
+    `subscription_status` is the latest non-expired active/trialing subscription,
+    or the most recent subscription's status if none are active. The frontend
+    Admin dashboard buckets users into Paid / Trial / None using this field.
+    """
     conn = get_connection()
     cur = get_cursor(conn)
 
     cur.execute("""
         SELECT
-            u.id, u.email, u.name, u.created_at, u.last_login_at,
+            u.id,
+            u.email,
+            u.name,
+            u.phone_number,
+            u.stripe_customer_id,
+            u.created_at,
+            u.last_login_at,
             COALESCE(l.login_count, 0) as login_count,
-            COALESCE(p.prompt_count, 0) as prompt_count
+            COALESCE(p.prompt_count, 0) as prompt_count,
+            sub.status            AS subscription_status,
+            sub.current_period_end AS subscription_period_end,
+            sub.cancel_at_period_end AS subscription_cancel_at_period_end,
+            sub.stripe_subscription_id
         FROM users u
         LEFT JOIN (
             SELECT user_id, COUNT(*) as login_count
@@ -476,9 +491,39 @@ def get_all_users():
             FROM usage
             GROUP BY user_id
         ) p ON p.user_id = u.id
+        LEFT JOIN LATERAL (
+            -- Pick the best subscription for this user, preferring an
+            -- active/trialing one whose period hasn't expired, then falling
+            -- back to the most recent record (so we still surface
+            -- canceled/past_due states for the admin to act on).
+            SELECT status, current_period_end, cancel_at_period_end, stripe_subscription_id
+            FROM subscriptions s
+            WHERE s.user_id = u.id
+            ORDER BY
+                CASE
+                    WHEN status IN ('active','trialing')
+                         AND (current_period_end IS NULL OR current_period_end > NOW())
+                    THEN 0 ELSE 1
+                END,
+                created_at DESC
+            LIMIT 1
+        ) sub ON true
         ORDER BY u.created_at DESC
     """)
     users = [dict(row) for row in cur.fetchall()]
+
+    # Normalize: an "active" status with an expired period_end is effectively
+    # not active anymore — surface as "expired" so the admin doesn't think
+    # they're paying customers.
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    for u in users:
+        period_end = u.get('subscription_period_end')
+        if u.get('subscription_status') in ('active', 'trialing') and period_end:
+            # Make timezone-aware comparison
+            pe = period_end if period_end.tzinfo else period_end.replace(tzinfo=timezone.utc)
+            if pe < now:
+                u['subscription_status'] = 'expired'
 
     cur.close()
     conn.close()

@@ -139,6 +139,7 @@ npm run preview  # Preview production build
 - Python Azure Functions for API (api/ directory)
 - Environment variables managed via Azure Portal (Stripe keys, Google/Microsoft OAuth, DB connection, Redis, Polygon API key, Claude API key)
 - staticwebapp.config.json controls routing and auth rules
+- **IMPORTANT: Do NOT use `swa deploy` CLI for this project.** The Python API requires Oryx to build dependencies (psycopg2, stripe, anthropic, etc.). Only deploy via `git push origin master` which triggers the GitHub Actions workflow (`Azure/static-web-apps-deploy@v1`). Using `swa deploy` will break the API.
 
 ## Coding Conventions
 - Dark theme UI (gray-900 backgrounds, gray-800 cards, gray-700 borders)
