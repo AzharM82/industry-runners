@@ -456,12 +456,27 @@ def get_daily_report(date: str = None):
 
 
 def get_all_users():
-    """Get all users with their stats and current subscription status.
+    """Get all users with subscription status sourced LIVE from Stripe.
 
-    `subscription_status` is the latest non-expired active/trialing subscription,
-    or the most recent subscription's status if none are active. The frontend
-    Admin dashboard buckets users into Paid / Trial / None using this field.
+    Root-cause fix: the local `subscriptions` table goes stale when Stripe
+    webhooks are missed (network blips, replays, signups before webhook was
+    wired). That made the admin "Paid Users" count drift from reality.
+
+    Strategy:
+      1. Query DB for the canonical user list (id, login stats, etc.).
+      2. Query Stripe live for every active/trialing/past_due subscription
+         and key it by customer email.
+      3. Merge: subscription_status is sourced from Stripe when present,
+         otherwise from the DB row (covers users who never paid).
+      4. Append any Stripe customer with an active sub but no DB user as
+         a "ghost" row so the admin can see and reconcile them.
+
+    Stripe is the source of truth — no DB writes happen here.
     """
+    import logging
+    import os
+    from datetime import datetime, timezone
+
     conn = get_connection()
     cur = get_cursor(conn)
 
@@ -476,8 +491,8 @@ def get_all_users():
             u.last_login_at,
             COALESCE(l.login_count, 0) as login_count,
             COALESCE(p.prompt_count, 0) as prompt_count,
-            sub.status            AS subscription_status,
-            sub.current_period_end AS subscription_period_end,
+            sub.status              AS subscription_status,
+            sub.current_period_end  AS subscription_period_end,
             sub.cancel_at_period_end AS subscription_cancel_at_period_end,
             sub.stripe_subscription_id
         FROM users u
@@ -492,10 +507,6 @@ def get_all_users():
             GROUP BY user_id
         ) p ON p.user_id = u.id
         LEFT JOIN LATERAL (
-            -- Pick the best subscription for this user, preferring an
-            -- active/trialing one whose period hasn't expired, then falling
-            -- back to the most recent record (so we still surface
-            -- canceled/past_due states for the admin to act on).
             SELECT status, current_period_end, cancel_at_period_end, stripe_subscription_id
             FROM subscriptions s
             WHERE s.user_id = u.id
@@ -511,22 +522,135 @@ def get_all_users():
         ORDER BY u.created_at DESC
     """)
     users = [dict(row) for row in cur.fetchall()]
-
-    # Normalize: an "active" status with an expired period_end is effectively
-    # not active anymore — surface as "expired" so the admin doesn't think
-    # they're paying customers.
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
-    for u in users:
-        period_end = u.get('subscription_period_end')
-        if u.get('subscription_status') in ('active', 'trialing') and period_end:
-            # Make timezone-aware comparison
-            pe = period_end if period_end.tzinfo else period_end.replace(tzinfo=timezone.utc)
-            if pe < now:
-                u['subscription_status'] = 'expired'
-
     cur.close()
     conn.close()
+
+    # --- Pull live subscription state from Stripe ----------------------
+    stripe_subs_by_email: dict[str, dict] = {}
+    stripe_subs_by_customer_id: dict[str, dict] = {}
+    stripe_error: str | None = None
+
+    if os.environ.get('STRIPE_SECRET_KEY'):
+        try:
+            import stripe
+            stripe.api_key = os.environ['STRIPE_SECRET_KEY']
+            from .stripe_helpers import get_subscription_period
+
+            # Status priority: active outranks trialing, trialing outranks past_due.
+            status_rank = {'active': 3, 'trialing': 2, 'past_due': 1}
+
+            for status_filter in ('active', 'trialing', 'past_due'):
+                cursor = None
+                while True:
+                    page = stripe.Subscription.list(
+                        status=status_filter,
+                        limit=100,
+                        starting_after=cursor,
+                        expand=['data.customer'],
+                    )
+                    for sub in page.data:
+                        customer = sub.customer
+                        if isinstance(customer, str):
+                            try:
+                                customer = stripe.Customer.retrieve(customer)
+                            except Exception:
+                                continue
+                        email = (getattr(customer, 'email', None) or '').lower().strip()
+                        cust_id = getattr(customer, 'id', None)
+                        period_start, period_end = get_subscription_period(sub)
+                        period_end_dt = (
+                            datetime.fromtimestamp(period_end, tz=timezone.utc)
+                            if period_end else None
+                        )
+                        record = {
+                            'subscription_status': sub.status,
+                            'subscription_period_end': period_end_dt,
+                            'subscription_cancel_at_period_end': bool(getattr(sub, 'cancel_at_period_end', False)),
+                            'stripe_subscription_id': sub.id,
+                            'stripe_customer_id': cust_id,
+                            'stripe_customer_email': email,
+                        }
+                        # Take the highest-priority record per email + per customer_id
+                        for key_dict, key_val in (
+                            (stripe_subs_by_email, email),
+                            (stripe_subs_by_customer_id, cust_id),
+                        ):
+                            if not key_val:
+                                continue
+                            existing = key_dict.get(key_val)
+                            if (
+                                existing is None
+                                or status_rank.get(sub.status, 0)
+                                > status_rank.get(existing['subscription_status'], 0)
+                            ):
+                                key_dict[key_val] = record
+                    if not page.has_more:
+                        break
+                    cursor = page.data[-1].id
+        except Exception as exc:
+            stripe_error = str(exc)
+            logging.error(f"get_all_users: live Stripe fetch failed, falling back to DB only: {exc}")
+
+    # --- Overlay Stripe truth onto DB users ----------------------------
+    for u in users:
+        email = (u.get('email') or '').lower().strip()
+        cust_id = u.get('stripe_customer_id')
+
+        # Prefer match by stripe_customer_id (most reliable), fall back to email.
+        stripe_record = (
+            (stripe_subs_by_customer_id.get(cust_id) if cust_id else None)
+            or stripe_subs_by_email.get(email)
+        )
+
+        if stripe_record:
+            u['subscription_status'] = stripe_record['subscription_status']
+            u['subscription_period_end'] = stripe_record['subscription_period_end']
+            u['subscription_cancel_at_period_end'] = stripe_record['subscription_cancel_at_period_end']
+            u['stripe_subscription_id'] = stripe_record['stripe_subscription_id']
+            if not cust_id and stripe_record['stripe_customer_id']:
+                # Surface the linked Stripe customer even if our DB hasn't recorded it yet.
+                u['stripe_customer_id'] = stripe_record['stripe_customer_id']
+            u['_source'] = 'stripe_live'
+        else:
+            u['_source'] = 'db'
+            # Degrade an "active" DB row whose period_end has passed.
+            period_end = u.get('subscription_period_end')
+            if u.get('subscription_status') in ('active', 'trialing') and period_end:
+                pe = period_end if period_end.tzinfo else period_end.replace(tzinfo=timezone.utc)
+                if pe < datetime.now(timezone.utc):
+                    u['subscription_status'] = 'expired'
+
+    # --- Append "ghost" Stripe customers we don't have user records for ---
+    db_emails = {(u.get('email') or '').lower().strip() for u in users if u.get('email')}
+    db_cust_ids = {u.get('stripe_customer_id') for u in users if u.get('stripe_customer_id')}
+    for record in stripe_subs_by_email.values():
+        if record['stripe_customer_email'] in db_emails:
+            continue
+        if record['stripe_customer_id'] in db_cust_ids:
+            continue
+        users.append({
+            'id': f"stripe:{record['stripe_customer_id']}",
+            'email': record['stripe_customer_email'],
+            'name': None,
+            'phone_number': None,
+            'stripe_customer_id': record['stripe_customer_id'],
+            'created_at': None,
+            'last_login_at': None,
+            'login_count': 0,
+            'prompt_count': 0,
+            'subscription_status': record['subscription_status'],
+            'subscription_period_end': record['subscription_period_end'],
+            'subscription_cancel_at_period_end': record['subscription_cancel_at_period_end'],
+            'stripe_subscription_id': record['stripe_subscription_id'],
+            '_source': 'stripe_only_no_db_user',
+        })
+
+    if stripe_error:
+        # Make the failure visible in the response so the admin knows the
+        # count fell back to the (possibly stale) DB.
+        for u in users:
+            u.setdefault('_stripe_fetch_error', stripe_error)
+
     return users
 
 
