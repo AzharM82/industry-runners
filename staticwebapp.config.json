@@ -135,6 +135,14 @@
       "allowedRoles": ["anonymous", "authenticated"]
     },
     {
+      "route": "/api/broadcast-send",
+      "allowedRoles": ["authenticated"]
+    },
+    {
+      "route": "/api/broadcast-drain",
+      "allowedRoles": ["anonymous", "authenticated"]
+    },
+    {
       "route": "/api/test-webhook-sync",
       "allowedRoles": ["authenticated"]
     },

@@ -90,8 +90,33 @@ def init_schema():
         send_date DATE NOT NULL,
         status VARCHAR(20) NOT NULL DEFAULT 'sent',
         error_message TEXT,
+        kind VARCHAR(20) DEFAULT 'daily',
         created_at TIMESTAMP DEFAULT NOW()
     );
+
+    -- Add `kind` column to existing email_log if missing (idempotent migration).
+    ALTER TABLE email_log ADD COLUMN IF NOT EXISTS kind VARCHAR(20) DEFAULT 'daily';
+
+    -- Broadcast queue: one row per (broadcast x recipient) pair.
+    -- A timer-triggered drain function pulls a batch with FOR UPDATE SKIP LOCKED,
+    -- sends via Gmail SMTP, then marks the row sent or failed.
+    CREATE TABLE IF NOT EXISTS broadcast_queue (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        broadcast_id UUID NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        subject TEXT NOT NULL,
+        body_html TEXT NOT NULL,
+        body_text TEXT NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        attempts INT NOT NULL DEFAULT 0,
+        last_error TEXT,
+        enqueued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        sent_at TIMESTAMPTZ,
+        is_test BOOLEAN NOT NULL DEFAULT FALSE,
+        triggered_by VARCHAR(255)
+    );
+    CREATE INDEX IF NOT EXISTS idx_broadcast_queue_pending
+        ON broadcast_queue(status, enqueued_at) WHERE status = 'pending';
 
     -- Investment stocks table (long-term portfolio)
     CREATE TABLE IF NOT EXISTS investment_stocks (
@@ -1033,7 +1058,7 @@ def update_email_opt_out(email: str, opt_out: bool):
     conn.close()
 
 
-def log_email_send(email: str, send_date: str, status: str, error_message: str = None):
+def log_email_send(email: str, send_date: str, status: str, error_message: str = None, kind: str = 'daily'):
     """Log an email send attempt to email_log table."""
     conn = get_connection()
     cur = conn.cursor()
@@ -1042,12 +1067,134 @@ def log_email_send(email: str, send_date: str, status: str, error_message: str =
     row = cur.fetchone()
     user_id = row[0] if row else None
     cur.execute("""
-        INSERT INTO email_log (user_id, email, send_date, status, error_message)
-        VALUES (%s, %s, %s, %s, %s)
-    """, (user_id, email.lower(), send_date, status, error_message))
+        INSERT INTO email_log (user_id, email, send_date, status, error_message, kind)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """, (user_id, email.lower(), send_date, status, error_message, kind))
     conn.commit()
     cur.close()
     conn.close()
+
+
+# ─── Broadcast queue helpers ────────────────────────────────────────────
+
+def get_broadcast_recipient_emails():
+    """Return distinct emails for paid subscribers who have NOT opted out.
+
+    Source of truth is the local DB joined with the latest non-expired
+    active subscription. Stripe overlay (handled in get_all_users) is not
+    used here because we want the canonical user.email — not stripe-only
+    customers without DB rows.
+    """
+    conn = get_connection()
+    cur = get_cursor(conn)
+    cur.execute("""
+        SELECT DISTINCT u.email
+        FROM users u
+        JOIN subscriptions s ON s.user_id = u.id
+        WHERE s.status = 'active'
+          AND (s.current_period_end IS NULL OR s.current_period_end > NOW())
+          AND COALESCE(u.email_opt_out, false) = false
+          AND u.email IS NOT NULL
+        ORDER BY u.email
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [r['email'].lower().strip() for r in rows]
+
+
+def enqueue_broadcast(broadcast_id: str, recipients: list[str], subject: str,
+                      body_html: str, body_text: str, triggered_by: str,
+                      is_test: bool = False):
+    """Insert one row per recipient into broadcast_queue."""
+    if not recipients:
+        return 0
+    conn = get_connection()
+    cur = conn.cursor()
+    rows = [
+        (broadcast_id, email.lower().strip(), subject, body_html, body_text, triggered_by, is_test)
+        for email in recipients
+    ]
+    # executemany via mogrify is faster than per-row inserts for large lists.
+    args_str = ','.join(
+        cur.mogrify('(%s, %s, %s, %s, %s, %s, %s)', r).decode('utf-8') for r in rows
+    )
+    cur.execute(
+        f"INSERT INTO broadcast_queue (broadcast_id, email, subject, body_html, body_text, triggered_by, is_test) VALUES {args_str}"
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return len(rows)
+
+
+def claim_broadcast_batch(batch_size: int = 50):
+    """Atomically claim up to N pending broadcast rows.
+
+    Uses FOR UPDATE SKIP LOCKED so multiple drain workers can run safely.
+    Returns the claimed rows; caller must mark each one sent/failed.
+    """
+    conn = get_connection()
+    cur = get_cursor(conn)
+    cur.execute(f"""
+        WITH next AS (
+            SELECT id FROM broadcast_queue
+            WHERE status = 'pending'
+            ORDER BY enqueued_at
+            LIMIT {int(batch_size)}
+            FOR UPDATE SKIP LOCKED
+        )
+        UPDATE broadcast_queue bq
+        SET status = 'sending', attempts = bq.attempts + 1
+        FROM next
+        WHERE bq.id = next.id
+        RETURNING bq.id, bq.email, bq.subject, bq.body_html, bq.body_text, bq.is_test, bq.broadcast_id
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return rows
+
+
+def mark_broadcast_sent(row_id: str):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE broadcast_queue SET status='sent', sent_at=NOW() WHERE id = %s", (row_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def mark_broadcast_failed(row_id: str, error: str):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE broadcast_queue SET status='failed', last_error=%s WHERE id = %s",
+        (error[:1000], row_id),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_broadcast_stats(hours: int = 24):
+    """Aggregate broadcast send stats for the dashboard status pill."""
+    conn = get_connection()
+    cur = get_cursor(conn)
+    cur.execute(f"""
+        SELECT
+            COUNT(*) FILTER (WHERE status = 'pending')                            AS pending,
+            COUNT(*) FILTER (WHERE status = 'sending')                            AS sending,
+            COUNT(*) FILTER (WHERE status = 'sent'   AND sent_at > NOW() - INTERVAL '{int(hours)} hours') AS sent_recent,
+            COUNT(*) FILTER (WHERE status = 'failed' AND enqueued_at > NOW() - INTERVAL '{int(hours)} hours') AS failed_recent,
+            MAX(sent_at) AS last_sent_at
+        FROM broadcast_queue
+    """)
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return dict(row) if row else {}
 
 
 def get_email_subscribers_report():

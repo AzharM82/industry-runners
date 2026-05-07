@@ -270,6 +270,22 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     json.dumps({'telemetry': telemetry}, default=json_serializer),
                     mimetype='application/json'
                 )
+            elif report_type == 'broadcast-stats':
+                from shared.database import get_broadcast_stats
+                hours = int(req.params.get('hours', '24'))
+                stats = get_broadcast_stats(hours)
+                return func.HttpResponse(
+                    json.dumps({'broadcast_stats': stats}, default=json_serializer),
+                    mimetype='application/json'
+                )
+            elif report_type == 'broadcast-recipient-count':
+                # Count of paid+opt-in subscribers — shown in the confirm modal.
+                from shared.database import get_broadcast_recipient_emails
+                emails = get_broadcast_recipient_emails()
+                return func.HttpResponse(
+                    json.dumps({'count': len(emails), 'sample': emails[:5]}, default=json_serializer),
+                    mimetype='application/json'
+                )
             elif report_type == 'reset-email-optout':
                 # Reset email_opt_out for all paid/trialing subscribers
                 conn = get_connection()

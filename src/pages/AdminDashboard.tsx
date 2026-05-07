@@ -91,7 +91,92 @@ export function AdminDashboard() {
   const [selectedDate, setSelectedDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
   });
-  const [activeTab, setActiveTab] = useState<'daily' | 'users' | 'tools' | 'emails'>('daily');
+  const [activeTab, setActiveTab] = useState<'daily' | 'users' | 'tools' | 'emails' | 'messaging'>('daily');
+
+  // ─── Messaging tab state ──────────────────────────────────────────
+  const [msgSubject, setMsgSubject] = useState('');
+  const [msgBodyMd, setMsgBodyMd] = useState('');
+  const [msgSending, setMsgSending] = useState<'idle' | 'test' | 'all'>('idle');
+  const [msgResult, setMsgResult] = useState<unknown>(null);
+  const [msgRecipientCount, setMsgRecipientCount] = useState<number | null>(null);
+  const [msgConfirmOpen, setMsgConfirmOpen] = useState(false);
+  const [broadcastStats, setBroadcastStats] = useState<{
+    pending?: number; sending?: number; sent_recent?: number;
+    failed_recent?: number; last_sent_at?: string | null;
+  } | null>(null);
+
+  // ─── Lightweight Markdown → HTML preview (does not need to match the
+  //     server exactly; Python's `markdown` library renders the real email).
+  function renderMarkdownPreview(md: string): string {
+    const escapeHtml = (s: string) => s
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let h = escapeHtml(md);
+    h = h.replace(/```([\s\S]*?)```/g, (_, code) => `<pre>${code}</pre>`);
+    h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+    h = h.replace(/^### (.*)$/gm, '<h3>$1</h3>');
+    h = h.replace(/^## (.*)$/gm, '<h2>$1</h2>');
+    h = h.replace(/^# (.*)$/gm, '<h1>$1</h1>');
+    h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    h = h.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    h = h.replace(/^- (.*)$/gm, '<li>$1</li>');
+    h = h.replace(/(<li>.*<\/li>\s*)+/g, (m) => `<ul>${m}</ul>`);
+    h = h.replace(/\n{2,}/g, '</p><p>');
+    h = h.replace(/\n/g, '<br/>');
+    return `<p>${h}</p>`;
+  }
+
+  async function fetchBroadcastStats() {
+    try {
+      const r = await fetch('/api/subscription-status?report=broadcast-stats');
+      if (r.ok) {
+        const d = await r.json();
+        setBroadcastStats(d.broadcast_stats ?? null);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function fetchRecipientCount() {
+    try {
+      const r = await fetch('/api/subscription-status?report=broadcast-recipient-count');
+      if (r.ok) {
+        const d = await r.json();
+        setMsgRecipientCount(typeof d.count === 'number' ? d.count : null);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function sendBroadcast(test: boolean) {
+    setMsgSending(test ? 'test' : 'all');
+    setMsgResult(null);
+    try {
+      const r = await fetch('/api/broadcast-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject: msgSubject, body_md: msgBodyMd, test }),
+      });
+      const text = await r.text();
+      let data: unknown;
+      try { data = JSON.parse(text); } catch { data = { _http_status: r.status, _raw: text.slice(0, 500) }; }
+      setMsgResult(data);
+      if (r.ok && !test) {
+        // Successful broadcast — wipe form so it can't be re-sent by accident.
+        setMsgSubject('');
+        setMsgBodyMd('');
+      }
+      // Refresh the status pill ~5s later (drain might have started by then).
+      setTimeout(fetchBroadcastStats, 5000);
+    } catch (e) {
+      setMsgResult({ error: String(e) });
+    } finally {
+      setMsgSending('idle');
+      setMsgConfirmOpen(false);
+    }
+  }
   const [refreshing, setRefreshing] = useState(false);
 
   // Email tab state
@@ -426,6 +511,21 @@ export function AdminDashboard() {
           >
             <Mail className="w-4 h-4" />
             Emails
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('messaging');
+              fetchRecipientCount();
+              fetchBroadcastStats();
+            }}
+            className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${
+              activeTab === 'messaging'
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-400 hover:text-white hover:bg-gray-800'
+            }`}
+          >
+            <Mail className="w-4 h-4" />
+            Messaging
           </button>
         </div>
 
@@ -1557,6 +1657,139 @@ export function AdminDashboard() {
               </>
             )}
           </>
+        )}
+
+        {activeTab === 'messaging' && (
+          <div className="space-y-4">
+            <div className="bg-gray-800 rounded-xl border border-gray-700 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-xl font-bold text-white">Send a Message to Subscribers</h2>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Plain Subject + Markdown body. Goes to all <strong>paid</strong> subscribers who have not opted out.
+                  </p>
+                </div>
+                <button
+                  onClick={fetchBroadcastStats}
+                  className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-white rounded-lg flex items-center gap-1.5"
+                  title="Refresh status"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Refresh
+                </button>
+              </div>
+
+              {broadcastStats && (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs mb-4">
+                  <div className="bg-gray-900 rounded px-3 py-2"><span className="text-gray-500">Pending:</span> <span className="text-white font-bold">{broadcastStats.pending ?? 0}</span></div>
+                  <div className="bg-gray-900 rounded px-3 py-2"><span className="text-gray-500">Sending:</span> <span className="text-yellow-400 font-bold">{broadcastStats.sending ?? 0}</span></div>
+                  <div className="bg-gray-900 rounded px-3 py-2"><span className="text-gray-500">Sent (24h):</span> <span className="text-green-400 font-bold">{broadcastStats.sent_recent ?? 0}</span></div>
+                  <div className="bg-gray-900 rounded px-3 py-2"><span className="text-gray-500">Failed (24h):</span> <span className="text-red-400 font-bold">{broadcastStats.failed_recent ?? 0}</span></div>
+                  <div className="bg-gray-900 rounded px-3 py-2"><span className="text-gray-500">Last sent:</span> <span className="text-white">{broadcastStats.last_sent_at ? new Date(broadcastStats.last_sent_at).toLocaleString() : '—'}</span></div>
+                </div>
+              )}
+
+              <label className="block text-sm text-gray-400 mb-1">Subject</label>
+              <input
+                type="text"
+                value={msgSubject}
+                onChange={(e) => setMsgSubject(e.target.value)}
+                placeholder="e.g. New feature: Day Trading scanner is live"
+                maxLength={250}
+                className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 mb-4"
+              />
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">
+                    Body (Markdown — `**bold**`, `[link](url)`, `- bullets`)
+                  </label>
+                  <textarea
+                    value={msgBodyMd}
+                    onChange={(e) => setMsgBodyMd(e.target.value)}
+                    placeholder={"Hi everyone,\n\nWe just shipped **X**. Read more at [our blog](https://www.stockproai.net).\n\n- Bullet 1\n- Bullet 2\n\nThanks,\nAzhar"}
+                    rows={14}
+                    maxLength={50000}
+                    className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 font-mono text-sm focus:outline-none focus:border-purple-500"
+                  />
+                  <div className="text-xs text-gray-500 mt-1">{msgBodyMd.length} / 50,000 chars</div>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Preview</label>
+                  <div
+                    className="prose prose-invert max-w-none bg-white text-gray-900 rounded-lg p-4 text-sm h-[336px] overflow-y-auto border border-gray-700"
+                    dangerouslySetInnerHTML={{
+                      __html: msgBodyMd
+                        ? renderMarkdownPreview(msgBodyMd)
+                        : '<p style="color:#9ca3af">Preview will appear here as you type…</p>',
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 mt-4">
+                <button
+                  onClick={() => sendBroadcast(true)}
+                  disabled={msgSending !== 'idle' || !msgSubject.trim() || !msgBodyMd.trim()}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-lg flex items-center gap-2"
+                  title="Sends a test only to reachazhar@hotmail.com"
+                >
+                  {msgSending === 'test' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                  Send test to me
+                </button>
+                <button
+                  onClick={() => setMsgConfirmOpen(true)}
+                  disabled={msgSending !== 'idle' || !msgSubject.trim() || !msgBodyMd.trim()}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2"
+                >
+                  {msgSending === 'all' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                  Send to all paid subscribers
+                  {msgRecipientCount !== null && (
+                    <span className="bg-purple-800 text-xs px-2 py-0.5 rounded-full">{msgRecipientCount}</span>
+                  )}
+                </button>
+                <span className="text-xs text-gray-500">Test always goes to <code>reachazhar@hotmail.com</code></span>
+              </div>
+
+              {msgResult !== null && (
+                <pre className="mt-4 bg-gray-950 border border-gray-700 rounded-lg p-3 text-xs text-green-300 overflow-x-auto max-h-64">
+                  {JSON.stringify(msgResult, null, 2)}
+                </pre>
+              )}
+            </div>
+
+            {msgConfirmOpen && (
+              <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                <div className="bg-gray-900 border border-gray-700 rounded-xl max-w-md w-full p-6">
+                  <h3 className="text-lg font-bold text-white mb-2">Confirm broadcast</h3>
+                  <p className="text-sm text-gray-300 mb-4">
+                    About to email{' '}
+                    <strong className="text-purple-400">{msgRecipientCount ?? '?'}</strong> paid subscribers with subject:
+                  </p>
+                  <p className="bg-gray-800 rounded p-3 text-sm text-white mb-4 break-words">{msgSubject}</p>
+                  <p className="text-xs text-gray-500 mb-4">
+                    This cannot be undone. Recipients are queued in DB and the timer-driven drain function (every ~30 sec) will send via Gmail SMTP.
+                  </p>
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      onClick={() => setMsgConfirmOpen(false)}
+                      className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => sendBroadcast(false)}
+                      disabled={msgSending !== 'idle'}
+                      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2"
+                    >
+                      {msgSending === 'all' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                      Send now
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

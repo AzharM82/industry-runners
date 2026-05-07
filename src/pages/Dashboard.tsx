@@ -6,7 +6,6 @@ import { ETFCard } from '../components/ETFCard';
 import { DayTradeCard } from '../components/DayTradeCard';
 import { StockModal } from '../components/StockModal';
 import { MarketIndices } from '../components/MarketIndices';
-import { StockAnalysisView } from '../components/StockAnalysisView';
 import { FocusStocksView } from '../components/FocusStocksView';
 import { BreadthIndicatorsView } from '../components/BreadthIndicatorsView';
 import { TradeManagementView } from '../components/TradeManagementView';
@@ -105,7 +104,7 @@ function getAllSymbols(): string[] {
   return Array.from(symbols);
 }
 
-type DashboardType = 'start-here' | 'market-summary' | 'ai-analysis' | 'analysis' | 'focus' | 'breadth' | 'sector-rotation' | 'swing' | 'daytrade' | 'trade-management' | 'investments';
+type DashboardType = 'start-here' | 'market-summary' | 'ai-analysis' | 'focus' | 'breadth' | 'sector-rotation' | 'swing' | 'daytrade' | 'trade-management' | 'investments';
 
 export function Dashboard() {
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
@@ -792,16 +791,6 @@ export function Dashboard() {
               Sector Rotation
             </button>
             <button
-              onClick={() => setActiveTab('analysis')}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
-                activeTab === 'analysis'
-                  ? 'bg-gray-800 text-white border-t border-l border-r border-gray-700'
-                  : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800/50'
-              }`}
-            >
-              Stock Analysis
-            </button>
-            <button
               onClick={() => setActiveTab('focus')}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
                 activeTab === 'focus'
@@ -902,9 +891,6 @@ export function Dashboard() {
         ) : activeTab === 'ai-analysis' ? (
           // AI Analysis Dashboard
           <PromptRunner />
-        ) : activeTab === 'analysis' ? (
-          // Stock Analysis Dashboard
-          <StockAnalysisView />
         ) : activeTab === 'focus' ? (
           // Focus Stocks Dashboard
           <FocusStocksView />
