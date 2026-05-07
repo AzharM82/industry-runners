@@ -322,8 +322,17 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 )
             elif report_type == 'users':
                 users = get_all_users()
+                # Marker so we can confirm in the response which build is actually
+                # serving this request (vs a stale Function worker still warm
+                # with the previous code version).
+                payload = {
+                    'users': users,
+                    '_build_marker': 'users-v3-stripe-overlay',
+                    '_users_count': len(users),
+                    '_paid_in_response': sum(1 for u in users if u.get('subscription_status') == 'active'),
+                }
                 return func.HttpResponse(
-                    json.dumps({'users': users}, default=json_serializer),
+                    json.dumps(payload, default=json_serializer),
                     mimetype='application/json'
                 )
             elif report_type == 'email-subscribers':
