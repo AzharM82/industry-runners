@@ -1198,33 +1198,62 @@ def get_broadcast_stats(hours: int = 24):
 
 
 def get_email_subscribers_report():
-    """Get all active/trialing subscribers with subscription info, opt-out status, and latest email delivery."""
+    """Get all paid/trialing subscribers with subscription info, opt-out status, and latest email delivery.
+
+    Sources subscription truth from `get_all_users()` (which overlays live
+    Stripe), then enriches each row with email_opt_out + last delivery
+    from email_log. This guarantees parity with the admin "Paid Users"
+    tile — anyone Stripe says is paying shows up in the Email tab too,
+    even if their local subscriptions row is stale or missing.
+    """
+    # Pull the merged Stripe-overlayed user list.
+    merged = get_all_users()
+    paid = [u for u in merged if u.get('subscription_status') in ('active', 'trialing')]
+    if not paid:
+        return []
+
+    # Pull the email_opt_out flag and the latest email_log row in one round-trip.
+    emails = [u['email'].lower().strip() for u in paid if u.get('email')]
+    if not emails:
+        return []
+
     conn = get_connection()
     cur = get_cursor(conn)
     cur.execute("""
-        SELECT
-            u.id, u.email, u.name, u.email_opt_out,
-            s.status AS subscription_status,
-            s.current_period_end,
-            el.send_date AS last_send_date,
-            el.status AS last_status,
-            el.error_message AS last_error
+        SELECT u.email, COALESCE(u.email_opt_out, false) AS email_opt_out
         FROM users u
-        JOIN subscriptions s ON s.user_id = u.id
-            AND s.status IN ('active', 'trialing')
-            AND s.current_period_end > NOW()
-        LEFT JOIN LATERAL (
-            SELECT send_date, status, error_message
-            FROM email_log
-            WHERE email_log.email = u.email
-            ORDER BY created_at DESC
-            LIMIT 1
-        ) el ON true
-        ORDER BY u.email
-    """)
-    rows = [dict(row) for row in cur.fetchall()]
+        WHERE u.email = ANY(%s)
+    """, (emails,))
+    opt_outs = {(r['email'] or '').lower(): r['email_opt_out'] for r in cur.fetchall()}
+
+    cur.execute("""
+        SELECT DISTINCT ON (email_log.email)
+               email_log.email, email_log.send_date, email_log.status, email_log.error_message
+        FROM email_log
+        WHERE email_log.email = ANY(%s)
+        ORDER BY email_log.email, email_log.created_at DESC
+    """, (emails,))
+    last_sends = {(r['email'] or '').lower(): r for r in cur.fetchall()}
+
     cur.close()
     conn.close()
+
+    rows = []
+    for u in paid:
+        e = (u.get('email') or '').lower().strip()
+        last = last_sends.get(e)
+        rows.append({
+            'id': u.get('id'),
+            'email': u.get('email'),
+            'name': u.get('name'),
+            'email_opt_out': opt_outs.get(e, False),
+            'subscription_status': u.get('subscription_status'),
+            'current_period_end': u.get('subscription_period_end'),
+            'last_send_date': last['send_date'] if last else None,
+            'last_status': last['status'] if last else None,
+            'last_error': last['error_message'] if last else None,
+        })
+    rows.sort(key=lambda r: (r.get('email') or '').lower())
     return rows
 
 
