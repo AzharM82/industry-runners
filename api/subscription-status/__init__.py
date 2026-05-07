@@ -26,7 +26,8 @@ from shared.database import (
     get_or_create_user_with_trial,
     update_user_stripe_customer,
     create_subscription,
-    get_subscription_by_stripe_id
+    get_subscription_by_stripe_id,
+    get_all_users,  # canonical Stripe-overlayed users list
 )
 from shared.admin import is_admin, MONTHLY_LIMIT, TRIAL_PROMPT_LIMIT
 import stripe
@@ -200,92 +201,11 @@ def get_daily_report(date: str = None):
     }
 
 
-def get_all_users():
-    """Get all users with stats, phone numbers, and subscription status."""
-    conn = get_connection()
-    cur = get_cursor(conn)
-
-    # Get all users with their details
-    cur.execute("""
-        SELECT id, email, name, phone_number, auth_provider, is_new_user, created_at, last_login_at
-        FROM users
-        ORDER BY created_at DESC
-    """)
-    users = [dict(row) for row in cur.fetchall()]
-
-    # Get prompt counts
-    cur.execute("""
-        SELECT user_id, COUNT(*) as prompt_count
-        FROM usage
-        GROUP BY user_id
-    """)
-    prompt_counts = {str(row['user_id']): row['prompt_count'] for row in cur.fetchall()}
-
-    # Get login counts
-    cur.execute("""
-        SELECT user_id, COUNT(*) as login_count
-        FROM user_logins
-        GROUP BY user_id
-    """)
-    login_counts = {str(row['user_id']): row['login_count'] for row in cur.fetchall()}
-
-    # Get ALL subscriptions for each user (most recent first)
-    # This includes both active paid subscriptions and trials
-    cur.execute("""
-        SELECT DISTINCT ON (user_id)
-            user_id, status, stripe_subscription_id, current_period_end
-        FROM subscriptions
-        ORDER BY user_id, created_at DESC
-    """)
-    subscriptions = {}
-    for row in cur.fetchall():
-        user_id = str(row['user_id'])
-        stripe_sub_id = row['stripe_subscription_id'] or ''
-        status = row['status']
-        period_end = row['current_period_end']
-
-        # Determine if subscription is active
-        is_trial = stripe_sub_id.startswith('trial_')
-        is_active = status in ('active', 'trialing')
-
-        # Check if not expired (period_end > now)
-        is_valid = True
-        if period_end:
-            from datetime import datetime, timezone
-            now = datetime.now(timezone.utc)
-            if period_end.tzinfo is None:
-                # Assume UTC if no timezone
-                period_end = period_end.replace(tzinfo=timezone.utc)
-            is_valid = period_end > now
-
-        subscriptions[user_id] = {
-            'status': status if (is_active and is_valid) else ('expired' if not is_valid else status),
-            'is_trial': is_trial,
-            'expires': row['current_period_end'],
-            'stripe_sub_id': stripe_sub_id
-        }
-
-    # Merge data into users
-    for user in users:
-        user_id = str(user['id'])
-        user['prompt_count'] = prompt_counts.get(user_id, 0)
-        user['login_count'] = login_counts.get(user_id, 0)
-        user['has_phone'] = bool(user.get('phone_number'))
-
-        # Subscription info
-        sub = subscriptions.get(user_id)
-        if sub:
-            user['subscription_status'] = sub['status']
-            user['is_trial'] = sub['is_trial']
-            user['subscription_expires'] = sub['expires']
-        else:
-            user['subscription_status'] = None
-            user['is_trial'] = False
-            user['subscription_expires'] = None
-
-    cur.close()
-    conn.close()
-    return users
+# NOTE: Local get_all_users() was removed because it shadowed the
+# Stripe-overlay version in shared.database and caused the admin
+# dashboard's Paid Users count to drift from the actual Stripe state
+# (it only ever read the local subscriptions table, never the live API).
+# All callers now use the imported shared.database.get_all_users.
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:

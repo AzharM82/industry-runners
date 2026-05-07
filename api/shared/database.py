@@ -486,6 +486,8 @@ def get_all_users():
             u.email,
             u.name,
             u.phone_number,
+            u.auth_provider,
+            u.is_new_user,
             u.stripe_customer_id,
             u.created_at,
             u.last_login_at,
@@ -632,6 +634,15 @@ def get_all_users():
                 if pe < datetime.now(timezone.utc):
                     u['subscription_status'] = 'expired'
 
+        # Frontend-friendly aliases / derived fields.
+        u['has_phone'] = bool(u.get('phone_number'))
+        u['subscription_expires'] = u.get('subscription_period_end')
+        sub_id = (u.get('stripe_subscription_id') or '') or ''
+        u['is_trial'] = (
+            u.get('subscription_status') == 'trialing'
+            or (sub_id.startswith('trial_') if sub_id else False)
+        )
+
     # --- Append "ghost" Stripe customers we don't have user records for ---
     db_emails = {(u.get('email') or '').lower().strip() for u in users if u.get('email')}
     db_cust_ids = {u.get('stripe_customer_id') for u in users if u.get('stripe_customer_id')}
@@ -645,6 +656,8 @@ def get_all_users():
             'email': record['stripe_customer_email'],
             'name': None,
             'phone_number': None,
+            'auth_provider': None,
+            'is_new_user': False,
             'stripe_customer_id': record['stripe_customer_id'],
             'created_at': None,
             'last_login_at': None,
@@ -654,6 +667,9 @@ def get_all_users():
             'subscription_period_end': record['subscription_period_end'],
             'subscription_cancel_at_period_end': record['subscription_cancel_at_period_end'],
             'stripe_subscription_id': record['stripe_subscription_id'],
+            'has_phone': False,
+            'subscription_expires': record['subscription_period_end'],
+            'is_trial': record['subscription_status'] == 'trialing',
             '_source': 'stripe_only_no_db_user',
         })
 
