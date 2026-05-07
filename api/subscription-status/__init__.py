@@ -293,20 +293,26 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Initialize schema
         init_schema()
 
-        # Get authenticated user
+        # Diag-key bypass for unauthenticated diagnostic calls (curl/CI).
+        # Used by debugging tools to inspect admin-report data without OAuth.
+        diag_key = req.headers.get('x-diag-key') or req.params.get('diag_key')
+        diag_key_valid = bool(diag_key) and diag_key == os.environ.get('DAILY_EMAIL_KEY')
+
+        # Get authenticated user (unless using diag bypass with a report request)
         auth_user = get_user_from_auth(req)
-        if not auth_user:
+        if not auth_user and not diag_key_valid:
             return func.HttpResponse(
                 json.dumps({'error': 'Unauthorized'}),
                 status_code=401,
                 mimetype='application/json'
             )
 
-        user_email = auth_user.get('userDetails', '').lower()
+        user_email = (auth_user.get('userDetails', '') if auth_user else '').lower()
+        is_admin_call = is_admin(user_email) if user_email else diag_key_valid
 
         # Check for admin report requests
         report_type = req.params.get('report', '').lower()
-        if report_type and is_admin(user_email):
+        if report_type and is_admin_call:
             if report_type == 'daily':
                 date = req.params.get('date')
                 report = get_daily_report(date)
