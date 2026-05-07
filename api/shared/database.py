@@ -529,12 +529,21 @@ def get_all_users():
     stripe_subs_by_email: dict[str, dict] = {}
     stripe_subs_by_customer_id: dict[str, dict] = {}
     stripe_error: str | None = None
+    stripe_pages_fetched = 0
+    stripe_subs_seen = 0
 
-    if os.environ.get('STRIPE_SECRET_KEY'):
+    has_stripe_key = bool(os.environ.get('STRIPE_SECRET_KEY'))
+    logging.info(f"get_all_users: STRIPE_SECRET_KEY present={has_stripe_key}")
+
+    if has_stripe_key:
         try:
             import stripe
             stripe.api_key = os.environ['STRIPE_SECRET_KEY']
-            from .stripe_helpers import get_subscription_period
+            try:
+                from .stripe_helpers import get_subscription_period
+            except Exception:
+                # Tolerate import-style differences when running outside the package.
+                from shared.stripe_helpers import get_subscription_period  # type: ignore
 
             # Status priority: active outranks trialing, trialing outranks past_due.
             status_rank = {'active': 3, 'trialing': 2, 'past_due': 1}
@@ -548,7 +557,9 @@ def get_all_users():
                         starting_after=cursor,
                         expand=['data.customer'],
                     )
+                    stripe_pages_fetched += 1
                     for sub in page.data:
+                        stripe_subs_seen += 1
                         customer = sub.customer
                         if isinstance(customer, str):
                             try:
@@ -587,9 +598,10 @@ def get_all_users():
                     if not page.has_more:
                         break
                     cursor = page.data[-1].id
+            logging.info(f"get_all_users: stripe pages={stripe_pages_fetched} subs={stripe_subs_seen} unique_emails={len(stripe_subs_by_email)}")
         except Exception as exc:
-            stripe_error = str(exc)
-            logging.error(f"get_all_users: live Stripe fetch failed, falling back to DB only: {exc}")
+            stripe_error = f"{type(exc).__name__}: {exc}"
+            logging.error(f"get_all_users: live Stripe fetch failed, falling back to DB only: {stripe_error}")
 
     # --- Overlay Stripe truth onto DB users ----------------------------
     for u in users:
@@ -645,9 +657,29 @@ def get_all_users():
             '_source': 'stripe_only_no_db_user',
         })
 
+    # Always attach diagnostics to the first user (or to a synthetic
+    # marker row if no users) so the admin can inspect from the network tab.
+    diag = {
+        '_diag': True,
+        'stripe_key_present': has_stripe_key,
+        'stripe_pages_fetched': stripe_pages_fetched,
+        'stripe_subs_seen': stripe_subs_seen,
+        'stripe_unique_emails': len(stripe_subs_by_email),
+        'stripe_error': stripe_error,
+        'merged_active_count': sum(1 for u in users if u.get('subscription_status') == 'active'),
+        'merged_trialing_count': sum(1 for u in users if u.get('subscription_status') == 'trialing'),
+        'sources': {},
+    }
+    for u in users:
+        s = u.get('_source', '?')
+        diag['sources'][s] = diag['sources'].get(s, 0) + 1
+
+    if users:
+        users[0]['_diagnostics'] = diag
+    else:
+        users.append({'id': '_diag', 'email': '_diag@diag', '_diagnostics': diag})
+
     if stripe_error:
-        # Make the failure visible in the response so the admin knows the
-        # count fell back to the (possibly stale) DB.
         for u in users:
             u.setdefault('_stripe_fetch_error', stripe_error)
 
