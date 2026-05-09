@@ -1080,27 +1080,34 @@ def log_email_send(email: str, send_date: str, status: str, error_message: str =
 def get_broadcast_recipient_emails():
     """Return distinct emails for paid subscribers who have NOT opted out.
 
-    Source of truth is the local DB joined with the latest non-expired
-    active subscription. Stripe overlay (handled in get_all_users) is not
-    used here because we want the canonical user.email — not stripe-only
-    customers without DB rows.
+    Sources subscription truth from `get_all_users()` (Stripe-overlayed),
+    so trialing users and Stripe-only customers without local rows are
+    included. This guarantees parity with the admin "Emails" tab.
     """
+    merged = get_all_users()
+    paid = [
+        u for u in merged
+        if u.get('subscription_status') in ('active', 'trialing')
+        and u.get('email')
+    ]
+    if not paid:
+        return []
+
+    emails = sorted({u['email'].lower().strip() for u in paid})
+
     conn = get_connection()
     cur = get_cursor(conn)
     cur.execute("""
-        SELECT DISTINCT u.email
+        SELECT LOWER(u.email) AS email
         FROM users u
-        JOIN subscriptions s ON s.user_id = u.id
-        WHERE s.status = 'active'
-          AND (s.current_period_end IS NULL OR s.current_period_end > NOW())
-          AND COALESCE(u.email_opt_out, false) = false
-          AND u.email IS NOT NULL
-        ORDER BY u.email
-    """)
-    rows = cur.fetchall()
+        WHERE LOWER(u.email) = ANY(%s)
+          AND COALESCE(u.email_opt_out, false) = true
+    """, (emails,))
+    opted_out = {r['email'] for r in cur.fetchall()}
     cur.close()
     conn.close()
-    return [r['email'].lower().strip() for r in rows]
+
+    return [e for e in emails if e not in opted_out]
 
 
 def enqueue_broadcast(broadcast_id: str, recipients: list[str], subject: str,
