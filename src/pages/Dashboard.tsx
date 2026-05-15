@@ -125,6 +125,7 @@ export function Dashboard() {
   const [phoneSubmitting, setPhoneSubmitting] = useState(false);
   const [emailOptOut, setEmailOptOut] = useState(false);
   const [emailToggling, setEmailToggling] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   // Check subscription status on mount
   useEffect(() => {
@@ -208,6 +209,59 @@ export function Dashboard() {
     };
     trackLogin();
   }, []);
+
+  // Format a Stripe period_end (ISO string OR unix seconds OR Date) as a
+  // friendly date for the header / confirmation prompt.
+  const formatPeriodEnd = (value: string | number | null | undefined): string => {
+    if (value === null || value === undefined || value === '') return '';
+    const d = typeof value === 'number'
+      ? new Date(value * 1000)
+      : new Date(value);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  // Self-serve cancellation: flips Stripe `cancel_at_period_end=true` —
+  // user retains access until current_period_end, no further billing.
+  const handleCancelSubscription = async () => {
+    const sub = subscriptionStatus?.subscription;
+    if (!sub || cancelling) return;
+    const endLabel = formatPeriodEnd(sub.current_period_end);
+    const msg = endLabel
+      ? `Cancel subscription? You'll keep full access until ${endLabel}, then your account will revert to the free tier. No further charges.`
+      : `Cancel subscription? You'll keep access until the end of your current billing period, then your account will revert to the free tier. No further charges.`;
+    if (!window.confirm(msg)) return;
+
+    setCancelling(true);
+    try {
+      const res = await fetch('/api/cancel-subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        let detail = text;
+        try { detail = JSON.parse(text).error || text; } catch { /* keep raw */ }
+        window.alert(`Could not cancel subscription: ${detail}`);
+        return;
+      }
+      // Refetch subscription status so the header flips to "Access ends ..."
+      const refreshed = await fetch('/api/subscription-status');
+      if (refreshed.ok) {
+        const data = await refreshed.json();
+        setSubscriptionStatus(data);
+      }
+    } catch (err) {
+      console.error('Cancel subscription failed:', err);
+      window.alert('Network error while cancelling subscription. Please try again.');
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   // Load email preference
   useEffect(() => {
@@ -681,6 +735,34 @@ export function Dashboard() {
                   {user.userDetails}
                 </span>
               )}
+              {subscriptionStatus?.has_access
+                && !subscriptionStatus?.is_admin
+                && subscriptionStatus?.subscription
+                && !subscriptionStatus?.subscription.is_trial
+                && (
+                  subscriptionStatus.subscription.cancel_at_period_end ? (
+                    <span
+                      className="text-xs px-2 py-1 bg-amber-900/40 text-amber-300 rounded"
+                      title="Your subscription will not renew."
+                    >
+                      Access ends {formatPeriodEnd(subscriptionStatus.subscription.current_period_end) || 'soon'} — won't renew
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">
+                        Renews {formatPeriodEnd(subscriptionStatus.subscription.current_period_end) || '—'}
+                      </span>
+                      <button
+                        onClick={handleCancelSubscription}
+                        disabled={cancelling}
+                        className="text-xs px-2 py-1 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-800 disabled:text-gray-500 text-gray-300 border border-gray-700 rounded transition-colors"
+                        title="Cancel your subscription. You'll keep access until the period ends."
+                      >
+                        {cancelling ? 'Cancelling…' : 'Cancel subscription'}
+                      </button>
+                    </div>
+                  )
+                )}
               {lastUpdate && (
                 <span className="text-xs text-gray-500">
                   Last update: {formatTime(lastUpdate)}

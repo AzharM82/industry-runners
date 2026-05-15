@@ -87,6 +87,10 @@
       "allowedRoles": ["authenticated"]
     },
     {
+      "route": "/api/cancel-subscription",
+      "allowedRoles": ["authenticated"]
+    },
+    {
       "route": "/api/subscription-status",
       "allowedRoles": ["authenticated"]
     },
