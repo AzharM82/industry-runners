@@ -605,11 +605,25 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # Check for force_snapshot parameter (admin use to fix bad snapshots)
         force_snapshot = req.params.get('force_snapshot', '').lower() == 'true'
 
+        # Defense-in-depth: refuse to snapshot an empty indicator payload
+        # (happens when Polygon returns no day data — e.g. pre-open or outage).
+        # save_daily_snapshot already filters non-trading days, but a trading-day
+        # run before snapshot data is populated would still write zeros otherwise.
+        primary = indicators.get('primary', {})
+        looks_empty = (
+            primary.get('up4PlusToday', 0) == 0
+            and primary.get('down4PlusToday', 0) == 0
+            and indicators.get('t2108') is None
+        )
+
         # Save daily snapshot (once per day, or force if requested)
         if force_snapshot or should_save_daily_snapshot('breadth:realtime'):
-            save_daily_snapshot('breadth:realtime', response)
-            if force_snapshot:
-                logging.info("Force-saved daily snapshot (overwriting existing)")
+            if looks_empty and not force_snapshot:
+                logging.info("Skipping daily snapshot: indicators look empty (up4=0, down4=0, t2108=None)")
+            else:
+                save_daily_snapshot('breadth:realtime', response)
+                if force_snapshot:
+                    logging.info("Force-saved daily snapshot (overwriting existing)")
 
         return func.HttpResponse(
             json.dumps(response),

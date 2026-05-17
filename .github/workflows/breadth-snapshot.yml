@@ -1,0 +1,66 @@
+name: Daily Breadth & Sector Snapshot
+
+# Runs after every US trading day to ensure a Redis snapshot is captured
+# for realtime breadth, Finviz daily breadth, and sector rotation NH/NL.
+#
+# Previously these snapshots were only saved when a user happened to hit
+# the corresponding endpoint at the right time, which led to whole trading
+# days going un-saved. The cron makes the save deterministic.
+#
+# Schedule: 21:30 UTC Mon–Fri.
+#   • During EST (Nov–Mar): 16:30 ET — 30 min after market close.
+#   • During EDT (Mar–Nov): 17:30 ET — 90 min after market close.
+# Either way, Polygon's snapshot endpoint has settled close-of-day values
+# and Finviz's daily counts are final.
+#
+# Cron triggers on US calendar dates Mon–Fri; market_calendar inside
+# save_daily_snapshot skips US stock holidays automatically, so a workflow
+# run on (e.g.) July 4th is a no-op rather than a bad save.
+
+on:
+  schedule:
+    - cron: '30 21 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  capture-snapshots:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Capture realtime breadth snapshot
+        run: |
+          response=$(curl -sS -w "\n%{http_code}" -m 240 \
+            "https://www.stockproai.net/api/breadth?refresh=true&force_snapshot=true")
+          code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | sed '$d')
+          echo "HTTP $code"
+          echo "$body" | head -c 800
+          if [ "$code" -ge 400 ]; then
+            echo "::error::breadth snapshot failed ($code)"
+            exit 1
+          fi
+
+      - name: Capture Finviz daily breadth snapshot
+        run: |
+          response=$(curl -sS -w "\n%{http_code}" -m 180 \
+            "https://www.stockproai.net/api/breadth-daily?refresh=true&force_snapshot=true")
+          code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | sed '$d')
+          echo "HTTP $code"
+          echo "$body" | head -c 800
+          if [ "$code" -ge 400 ]; then
+            echo "::error::breadth-daily snapshot failed ($code)"
+            exit 1
+          fi
+
+      - name: Capture sector rotation NH/NL snapshot
+        run: |
+          response=$(curl -sS -w "\n%{http_code}" -m 180 \
+            "https://www.stockproai.net/api/sector-rotation?refresh=true")
+          code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | sed '$d')
+          echo "HTTP $code"
+          echo "$body" | head -c 800
+          if [ "$code" -ge 400 ]; then
+            echo "::error::sector-rotation snapshot failed ($code)"
+            exit 1
+          fi

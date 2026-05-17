@@ -123,6 +123,10 @@ def save_daily_snapshot(key_prefix: str, data: Dict[str, Any], date: str = None)
     Save a daily snapshot for historical tracking.
     Key format: {key_prefix}:history:{date}
     Also maintains a sorted set of dates for easy retrieval.
+
+    Refuses to write on non-trading days — Polygon/Finviz return stale or
+    empty values when the market is closed, and a garbage row blocks future
+    real saves for that date (should_save_daily_snapshot is key-existence only).
     """
     client = get_redis_client()
     if not client:
@@ -130,6 +134,18 @@ def save_daily_snapshot(key_prefix: str, data: Dict[str, Any], date: str = None)
 
     if date is None:
         date = today_pst()  # Use PST timezone
+
+    # Trading-day guard. Import lazily so cache.py stays usable in contexts
+    # where market_calendar isn't on the path.
+    try:
+        from .market_calendar import is_market_open as _is_trading_day
+        if not _is_trading_day(date):
+            logging.info(f"Skipping daily snapshot for {key_prefix} on {date}: non-trading day")
+            return False
+    except Exception as guard_err:
+        # If the guard itself fails, fall through and save — better to have
+        # data than to silently drop everything. The error is logged.
+        logging.warning(f"Trading-day guard unavailable, saving anyway: {guard_err}")
 
     try:
         # Save the snapshot

@@ -3,7 +3,10 @@ Fix endpoint for breadth history.
 Can force-refresh today's snapshot or delete a bad entry.
 Usage:
   /api/fix-breadth?action=refresh - Force refresh today's data from Finviz
-  /api/fix-breadth?action=delete&date=2026-02-03 - Delete a bad snapshot
+  /api/fix-breadth?action=delete&date=2026-02-03 - Delete from breadth:daily
+  /api/fix-breadth?action=delete&date=2026-02-03&key=breadth:realtime
+  /api/fix-breadth?action=cleanup_nontrading - Remove weekend/holiday snapshots
+                                              from both breadth:daily and breadth:realtime
 """
 
 import json
@@ -19,6 +22,9 @@ import azure.functions as func
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.cache import get_redis_client, set_cached, save_daily_snapshot, CACHE_TTL_DAILY
 from shared.timezone import now_pst, today_pst
+from shared.market_calendar import is_market_open as is_trading_day
+
+ALLOWED_DELETE_KEYS = {'breadth:daily', 'breadth:realtime'}
 
 
 # Import Finviz fetching from breadth-daily
@@ -110,9 +116,21 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     if action == 'delete':
         date = req.params.get('date', '')
+        # Support deleting from either breadth:daily (Finviz) or breadth:realtime (Polygon).
+        # Default stays breadth:daily for backwards compatibility with existing admin UI.
+        key_prefix = req.params.get('key', 'breadth:daily')
         if not date:
             return func.HttpResponse(
                 json.dumps({'error': 'date parameter required'}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        if key_prefix not in ALLOWED_DELETE_KEYS:
+            return func.HttpResponse(
+                json.dumps({
+                    'error': f'key must be one of {sorted(ALLOWED_DELETE_KEYS)}',
+                    'received': key_prefix,
+                }),
                 status_code=400,
                 mimetype="application/json"
             )
@@ -125,8 +143,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json"
             )
 
-        key = f'breadth:daily:history:{date}'
-        dates_key = 'breadth:daily:history:dates'
+        key = f'{key_prefix}:history:{date}'
+        dates_key = f'{key_prefix}:history:dates'
 
         deleted_key = client.delete(key)
         deleted_date = client.zrem(dates_key, date)
@@ -135,10 +153,46 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             json.dumps({
                 'success': True,
                 'action': 'delete',
+                'key_prefix': key_prefix,
                 'date': date,
                 'deleted_key': bool(deleted_key),
                 'deleted_from_set': bool(deleted_date)
             }),
+            mimetype="application/json"
+        )
+
+    elif action == 'cleanup_nontrading':
+        # Sweep both breadth history streams and drop any weekend/holiday entries
+        # that slipped in before the trading-day guard landed.
+        client = get_redis_client()
+        if not client:
+            return func.HttpResponse(
+                json.dumps({'error': 'Redis not connected'}),
+                status_code=500,
+                mimetype="application/json"
+            )
+
+        summary = {}
+        for key_prefix in sorted(ALLOWED_DELETE_KEYS):
+            dates_key = f'{key_prefix}:history:dates'
+            all_dates = client.zrange(dates_key, 0, -1)
+            removed = []
+            for d in all_dates:
+                if not is_trading_day(d):
+                    client.delete(f'{key_prefix}:history:{d}')
+                    client.zrem(dates_key, d)
+                    removed.append(d)
+            summary[key_prefix] = {
+                'scanned': len(all_dates),
+                'removed': removed,
+            }
+
+        return func.HttpResponse(
+            json.dumps({
+                'success': True,
+                'action': 'cleanup_nontrading',
+                'summary': summary,
+            }, indent=2),
             mimetype="application/json"
         )
 
@@ -223,7 +277,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             json.dumps({
                 'usage': {
                     'refresh': '/api/fix-breadth?action=refresh',
-                    'delete': '/api/fix-breadth?action=delete&date=YYYY-MM-DD'
+                    'delete_daily': '/api/fix-breadth?action=delete&date=YYYY-MM-DD',
+                    'delete_realtime': '/api/fix-breadth?action=delete&date=YYYY-MM-DD&key=breadth:realtime',
+                    'cleanup_nontrading': '/api/fix-breadth?action=cleanup_nontrading'
                 }
             }),
             mimetype="application/json"
