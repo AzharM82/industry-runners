@@ -35,6 +35,7 @@ def init_schema():
         stripe_customer_id VARCHAR(255),
         is_admin BOOLEAN DEFAULT FALSE,
         is_new_user BOOLEAN DEFAULT TRUE,
+        has_used_trial BOOLEAN DEFAULT FALSE,
         last_login_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
@@ -200,6 +201,26 @@ def init_schema():
             WHERE table_name = 'users' AND column_name = 'email_opt_out'
         ) THEN
             ALTER TABLE users ADD COLUMN email_opt_out BOOLEAN DEFAULT FALSE;
+        END IF;
+    END $$;
+
+    -- Add has_used_trial column. This is a permanent flag set once when a trial
+    -- is granted and NEVER reset, so a user cannot obtain a second free trial.
+    -- It survives deletion of the trial subscription row (which happens when a
+    -- trial converts to paid), unlike the implicit is_new_user / sub-count guards.
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'users' AND column_name = 'has_used_trial'
+        ) THEN
+            ALTER TABLE users ADD COLUMN has_used_trial BOOLEAN DEFAULT FALSE;
+            -- Backfill: anyone who already has any subscription row (trial or
+            -- paid) has already consumed their trial eligibility.
+            UPDATE users SET has_used_trial = TRUE
+            WHERE id IN (
+                SELECT DISTINCT user_id FROM subscriptions WHERE user_id IS NOT NULL
+            );
         END IF;
     END $$;
 
@@ -795,6 +816,15 @@ def create_trial_subscription(user_id: str, trial_days: int = 3):
     conn = get_connection()
     cur = get_cursor(conn)
 
+    # Permanent guard: never re-grant a trial to a user who already used one,
+    # even if their old subscription rows were deleted.
+    cur.execute("SELECT has_used_trial FROM users WHERE id = %s", (user_id,))
+    urow = cur.fetchone()
+    if urow and urow.get('has_used_trial'):
+        cur.close()
+        conn.close()
+        return None  # Trial already used, no second trial
+
     # Check if user already has any subscription (active or not)
     cur.execute("""
         SELECT id FROM subscriptions WHERE user_id = %s LIMIT 1
@@ -817,9 +847,9 @@ def create_trial_subscription(user_id: str, trial_days: int = 3):
     """, (user_id, f'trial_{user_id}', 'trialing', now, trial_end))
     sub = cur.fetchone()
 
-    # Mark user as no longer new
+    # Mark user as no longer new and permanently record that they used their trial
     cur.execute("""
-        UPDATE users SET is_new_user = FALSE, updated_at = NOW()
+        UPDATE users SET is_new_user = FALSE, has_used_trial = TRUE, updated_at = NOW()
         WHERE id = %s
     """, (user_id,))
 
@@ -834,6 +864,11 @@ def is_user_eligible_for_trial(email: str) -> bool:
     user = get_user_by_email(email)
     if not user:
         return True  # New user, will be created
+
+    # Permanent guard: once a trial has ever been granted, never grant another.
+    # This survives deletion of the trial subscription row (trial -> paid).
+    if user.get('has_used_trial', False):
+        return False
 
     # Check if user is marked as new
     if not user.get('is_new_user', False):

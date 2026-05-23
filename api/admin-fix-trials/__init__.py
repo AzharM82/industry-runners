@@ -90,9 +90,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 VALUES (%s, %s, 'trialing', %s, %s)
             """, (user_id, f'trial_{user_id}', now, trial_end))
 
-            # Mark as no longer new
+            # Mark as no longer new and permanently record trial usage
             cur.execute("""
-                UPDATE users SET is_new_user = FALSE, updated_at = NOW()
+                UPDATE users SET is_new_user = FALSE, has_used_trial = TRUE, updated_at = NOW()
                 WHERE id = %s
             """, (user_id,))
 
