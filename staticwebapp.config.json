@@ -20,11 +20,21 @@
           "clientSecretSettingName": "GOOGLE_CLIENT_SECRET"
         }
       },
-      "azureActiveDirectory": {
-        "registration": {
-          "openIdIssuer": "https://login.microsoftonline.com/common/v2.0",
-          "clientIdSettingName": "MICROSOFT_CLIENT_ID",
-          "clientSecretSettingName": "MICROSOFT_CLIENT_SECRET"
+      "customOpenIdConnectProviders": {
+        "microsoft": {
+          "registration": {
+            "clientIdSettingName": "MICROSOFT_CLIENT_ID",
+            "clientCredential": {
+              "clientSecretSettingName": "MICROSOFT_CLIENT_SECRET"
+            },
+            "openIdConnectConfiguration": {
+              "wellKnownOpenIdConfiguration": "https://login.microsoftonline.com/consumers/v2.0/.well-known/openid-configuration"
+            }
+          },
+          "login": {
+            "nameClaimType": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name",
+            "scopes": ["openid", "profile", "email"]
+          }
         }
       }
     }
@@ -48,7 +58,7 @@
     },
     {
       "route": "/login/microsoft",
-      "rewrite": "/.auth/login/aad?post_login_redirect_uri=/dashboard"
+      "rewrite": "/.auth/login/microsoft?post_login_redirect_uri=/dashboard"
     },
     {
       "route": "/logout",
