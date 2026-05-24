@@ -52,35 +52,46 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     logging.info(f"Received Stripe webhook: {event_type}")
 
+    # Handlers return True on success (or permanent, non-retryable skip) and
+    # False on a transient failure (e.g. a DB write that didn't land). A False
+    # result — or an unexpected exception — makes us return 500 so Stripe RETRIES.
+    # Previously this always returned 200, so a transient hiccup permanently
+    # dropped the event and left paying users stuck on their trial row.
+    handled = True
     try:
         if event_type == 'checkout.session.completed':
-            handle_checkout_completed(data)
+            handled = handle_checkout_completed(data)
 
         elif event_type == 'customer.subscription.created':
-            handle_subscription_created(data)
+            handled = handle_subscription_created(data)
 
         elif event_type == 'customer.subscription.updated':
-            handle_subscription_updated(data)
+            handled = handle_subscription_updated(data)
 
         elif event_type == 'customer.subscription.deleted':
-            handle_subscription_deleted(data)
+            handled = handle_subscription_deleted(data)
 
         elif event_type == 'invoice.payment_succeeded':
-            handle_payment_succeeded(data)
+            handled = handle_payment_succeeded(data)
 
         elif event_type == 'invoice.payment_failed':
-            handle_payment_failed(data)
-            
+            handled = handle_payment_failed(data)
+
         elif event_type == 'invoice.paid':
             # Handle invoice.paid as a backup
-            handle_invoice_paid(data)
+            handled = handle_invoice_paid(data)
 
     except Exception as e:
         logging.error(f"Error handling {event_type}: {e}")
         import traceback
         logging.error(traceback.format_exc())
-        # Return 200 to prevent Stripe from retrying
-        return func.HttpResponse(status_code=200)
+        # Return 500 so Stripe retries (it backs off and retries for ~3 days).
+        return func.HttpResponse(status_code=500)
+
+    # `handled is False` is explicit — None/True both mean "OK, don't retry".
+    if handled is False:
+        logging.error(f"Handler for {event_type} reported failure — returning 500 so Stripe retries")
+        return func.HttpResponse(status_code=500)
 
     return func.HttpResponse(status_code=200)
 
@@ -238,7 +249,7 @@ def handle_checkout_completed(session):
     
     if not email:
         logging.error("FATAL: No customer email found anywhere!")
-        return
+        return True  # Unrecoverable — retrying won't conjure an email.
 
     # Find or create user
     user = None
@@ -266,7 +277,7 @@ def handle_checkout_completed(session):
 
     if not user:
         logging.error(f"FATAL: Failed to get/create user for {email}")
-        return
+        return False  # Likely a transient DB issue — let Stripe retry.
 
     user_id = str(user['id'])
     logging.info(f"Processing checkout for user_id={user_id}, email={email}")
@@ -290,8 +301,10 @@ def handle_checkout_completed(session):
             logging.error(f"  email: {email}")
             logging.error(f"  subscription_id: {subscription_id}")
             logging.error(f"  sync_subscription_from_stripe returned False")
+        return success
     else:
         logging.warning(f"No subscription_id in checkout session for {email}")
+        return True
 
 
 def handle_subscription_created(subscription):
@@ -306,7 +319,7 @@ def handle_subscription_created(subscription):
     existing = get_subscription_by_stripe_id(subscription_id)
     if existing:
         logging.info(f"Subscription {subscription_id} already exists (likely from checkout event)")
-        return
+        return True
 
     # Get customer email from Stripe
     email = None
@@ -319,16 +332,16 @@ def handle_subscription_created(subscription):
 
     if not email:
         logging.error(f"No email found for customer {customer_id}")
-        return
+        return True  # Email-less Stripe customer — retrying won't help.
 
     # Get or create user
     user = get_or_create_user_for_stripe(email, customer_id)
     if not user:
         logging.error(f"Failed to create user for {email}")
-        return
+        return False  # Likely transient DB issue — let Stripe retry.
 
     # Sync the subscription
-    sync_subscription_from_stripe(str(user['id']), email, subscription_id, customer_id)
+    return sync_subscription_from_stripe(str(user['id']), email, subscription_id, customer_id)
 
 
 def handle_subscription_updated(subscription):
@@ -353,19 +366,22 @@ def handle_subscription_updated(subscription):
             cancel_at_period_end=cancel_at_period_end
         )
         logging.info(f"Updated subscription {subscription_id}: status={status}")
+        return True
     else:
         # Subscription doesn't exist - try to create it
         logging.warning(f"Subscription {subscription_id} not found, attempting to sync from Stripe")
-        
+
         try:
             customer = stripe.Customer.retrieve(customer_id)
             email = (customer.get('email') or '').lower().strip()
             if email:
                 user = get_or_create_user_for_stripe(email, customer_id)
                 if user:
-                    sync_subscription_from_stripe(str(user['id']), email, subscription_id, customer_id)
+                    return sync_subscription_from_stripe(str(user['id']), email, subscription_id, customer_id)
+            return True
         except Exception as e:
             logging.error(f"Error syncing missing subscription: {e}")
+            return False
 
 
 def handle_subscription_deleted(subscription):
@@ -393,24 +409,27 @@ def handle_payment_succeeded(invoice):
     customer_email = (invoice.get('customer_email') or '').lower().strip()
     
     logging.info(f"=== PAYMENT SUCCEEDED for subscription {subscription_id} ===")
-    
+
     if subscription_id:
         # Get the subscription and ensure it's properly synced
         try:
             subscription = stripe.Subscription.retrieve(subscription_id)
-            
+
             # Get user
             email = customer_email
             if not email and customer_id:
                 customer = stripe.Customer.retrieve(customer_id)
                 email = (customer.get('email') or '').lower().strip()
-            
+
             if email:
                 user = get_or_create_user_for_stripe(email, customer_id)
                 if user:
-                    sync_subscription_from_stripe(str(user['id']), email, subscription_id, customer_id)
+                    return sync_subscription_from_stripe(str(user['id']), email, subscription_id, customer_id)
+            return True
         except Exception as e:
             logging.error(f"Error syncing subscription on payment success: {e}")
+            return False
+    return True
 
 
 def handle_invoice_paid(invoice):
@@ -420,20 +439,23 @@ def handle_invoice_paid(invoice):
     customer_email = (invoice.get('customer_email') or '').lower().strip()
     
     logging.info(f"=== INVOICE PAID for subscription {subscription_id} ===")
-    
+
     if subscription_id:
         try:
             email = customer_email
             if not email and customer_id:
                 customer = stripe.Customer.retrieve(customer_id)
                 email = (customer.get('email') or '').lower().strip()
-            
+
             if email:
                 user = get_or_create_user_for_stripe(email, customer_id)
                 if user:
-                    sync_subscription_from_stripe(str(user['id']), email, subscription_id, customer_id)
+                    return sync_subscription_from_stripe(str(user['id']), email, subscription_id, customer_id)
+            return True
         except Exception as e:
             logging.error(f"Error syncing subscription on invoice paid: {e}")
+            return False
+    return True
 
 
 def handle_payment_failed(invoice):

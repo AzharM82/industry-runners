@@ -473,10 +473,24 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 logging.error(f"Error checking all subscriptions: {e}")
 
         # ========== AUTO-SYNC FIX ==========
-        # If no subscription found locally, try to sync from Stripe
-        # This fixes the race condition where webhook hasn't processed yet
-        if not subscription:
-            logging.info(f"No local subscription for {user_email}, attempting auto-sync from Stripe...")
+        # Sync from Stripe when EITHER there is no local subscription OR the only
+        # local subscription is a trial row. The trial case matters: a user who
+        # upgrades during their 3-day trial keeps a still-valid 'trial_' row, so
+        # without this check the live paid Stripe sub is never pulled in and the
+        # user is shown "trial" (and throttled) until the trial expires — even
+        # though the admin tab (which reads Stripe live) shows them as PAID.
+        # auto_sync is a no-op for genuine trial users: it returns None when no
+        # active/trialing Stripe subscription exists, leaving the trial row intact.
+        on_trial_locally = (
+            subscription is not None
+            and (subscription.get('stripe_subscription_id') or '').startswith('trial_')
+        )
+        if not subscription or on_trial_locally:
+            logging.info(
+                f"Subscription check for {user_email}: "
+                f"{'no local subscription' if not subscription else 'local trial only'} "
+                f"— attempting auto-sync from Stripe..."
+            )
             synced_sub, sync_debug = auto_sync_stripe_subscription(user_email, user_id)
             if synced_sub:
                 # Re-fetch the subscription to get proper format
