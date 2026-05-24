@@ -1062,22 +1062,45 @@ def delete_summaries_by_dates(dates):
 
 
 def get_paid_subscribers_for_email():
-    """Get all paid/trialing subscribers who have not opted out of emails."""
+    """Paid/trialing subscribers (Stripe-overlayed) who have not opted out.
+
+    Sources truth from get_all_users() (live Stripe overlay) instead of the
+    local `subscriptions` table, so paid users whose local row is missing or
+    stale (missed webhook, legacy duplicate Stripe customer, etc.) are still
+    emailed. Previously this read only the local table, so the daily send
+    reached far fewer people than the admin "Emails" tab reported as subscribed.
+    Keeps parity with get_email_subscribers_report() and
+    get_broadcast_recipient_emails().
+    """
+    merged = get_all_users()
+    paid = [
+        u for u in merged
+        if u.get('subscription_status') in ('active', 'trialing') and u.get('email')
+    ]
+    if not paid:
+        return []
+
+    emails = sorted({u['email'].lower().strip() for u in paid})
+
     conn = get_connection()
     cur = get_cursor(conn)
     cur.execute("""
-        SELECT u.email, u.name
-        FROM users u
-        JOIN subscriptions s ON s.user_id = u.id
-        WHERE s.status IN ('active', 'trialing')
-          AND s.current_period_end > NOW()
-          AND (u.email_opt_out IS NOT TRUE)
-        GROUP BY u.email, u.name
-    """)
-    rows = [dict(row) for row in cur.fetchall()]
+        SELECT LOWER(email) AS email
+        FROM users
+        WHERE LOWER(email) = ANY(%s)
+          AND COALESCE(email_opt_out, false) = true
+    """, (emails,))
+    opted_out = {r['email'] for r in cur.fetchall()}
     cur.close()
     conn.close()
-    return rows
+
+    # Deduplicate by lowercased email, keep first name seen.
+    seen = {}
+    for u in paid:
+        e = (u.get('email') or '').lower().strip()
+        if e and e not in opted_out and e not in seen:
+            seen[e] = {'email': u.get('email'), 'name': u.get('name')}
+    return list(seen.values())
 
 
 def update_email_opt_out(email: str, opt_out: bool):
