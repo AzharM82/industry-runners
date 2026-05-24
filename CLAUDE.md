@@ -9,7 +9,7 @@
 - **Database:** PostgreSQL (Azure)
 - **Cache:** Redis (Azure)
 - **Hosting:** Azure Static Web Apps
-- **Auth:** Google OAuth + Microsoft OAuth via Azure SWA built-in auth
+- **Auth:** Google OAuth (built-in SWA provider) + Microsoft **personal accounts / Live IDs** via a custom OIDC provider on the `consumers` endpoint (work/school Microsoft accounts intentionally not supported — they use Google). See "Auth notes" below.
 - **Payments:** Stripe (subscriptions, webhooks)
 - **AI:** Claude API (Sonnet) for ChartGPT, Deep Research, Halal Check
 - **Market Data:** Polygon.io API
@@ -96,10 +96,29 @@ industry-runners/
 
 ## Key Architecture Decisions
 - **Auth flow:** Azure SWA handles OAuth redirects → `/.auth/me` returns user → `useAuth` hook checks state → Dashboard checks `/api/subscription-status` for access
-- **Subscription flow:** Google login → subscription-status check → if no access, show paywall → Stripe checkout → webhook updates DB → user gets access
+- **Subscription flow:** login → `subscription-status` check → if no access, show paywall → Stripe checkout → webhook updates DB → user gets access
+- **Subscription reliability (see "Subscription system" below):** access is gated on `current_period_end > NOW()`; `subscription-status` self-heals from Stripe on login (covers missed webhooks, stale trials, renewals, and duplicate Stripe customers); the webhook returns 500 on failure so Stripe retries; checkout reuses one Stripe customer and blocks re-subscribe when already active.
 - **Data refresh:** Auto-refresh every 5 minutes during market hours (9:30 AM - 4:00 PM ET)
 - **AI prompts:** 30/month per type for paid users, 3 free for beta, unlimited for admins. Results are cached in Redis.
 - **Breadth data:** Dual source — real-time breadth (custom calculation from stock universe) + Finviz daily breadth (NH/NL, RSI, SMA)
+
+## Subscription system (Stripe ↔ Postgres)
+$6.99/mo via Stripe. Local tables: `users` (keyed by lowercased `email`, `stripe_customer_id`, `has_used_trial`) and `subscriptions` (`stripe_subscription_id`, `status`, `current_period_end`, `cancel_at_period_end`). Trials are local-only rows with `stripe_subscription_id` like `trial_<uuid>`.
+
+- **Access rule:** `has_access` = `get_subscription()` returns a row with `status IN ('active','trialing') AND current_period_end > NOW()` — so users keep access until their last paid day (and through the cancel grace period). `past_due` grants no access.
+- **Source of truth is Stripe.** The admin "All Users" view reads Stripe live; the app reads the local DB but **self-heals from Stripe on login** via `auto_sync_stripe_subscription` in `subscription-status/__init__.py`. It runs when there's no local sub OR the only local row is a `trial_`, and it also **refreshes** an existing row's status/`current_period_end` (so a missed renewal webhook doesn't wrongly revoke access).
+- **Cross-customer lookup:** `shared/stripe_helpers.py::find_active_subscription_for_email()` scans **all** Stripe customers for an email (legacy checkout minted a new customer per session, scattering subs). Used by auto-sync, the `?sync=<email>` override, and `admin-sync-subscription`.
+- **Webhook** (`stripe-webhook/`) returns **500 on failure** so Stripe retries (don't revert to "always 200" — that silently drops events).
+- **Checkout** (`create-checkout-session/`) reuses/creates ONE Stripe customer (passes `customer=`, not `customer_email=`) and **blocks a 2nd checkout** when the email already has an active sub (→ `/dashboard?already_subscribed=1`).
+- **Admin reconcile/diagnostics — all on `subscription-status` via `?report=`** (the dedicated `admin-sync-all-stripe` / `admin-stripe-diag` functions are NOT registered by the SWA host — deployed but invisible; don't rely on them):
+  - `?report=sync-all-dry` / `?report=sync-all` — bulk Stripe→DB reconcile (`reconcile_all_stripe_subscriptions`), idempotent, surfaced as Admin → Data Tools "Sync All from Stripe" buttons.
+  - `?report=double-bills` — emails with >1 active Stripe sub ("Find Double-Billed Users" button).
+  - `?sync=<email>` — per-user force-sync.
+  - Admin/diag-gated; unauthenticated diag access via `x-diag-key`/`?diag_key=` = `DAILY_EMAIL_KEY` for read reports.
+
+## Auth notes
+- **Microsoft = personal accounts only.** Uses a `customOpenIdConnectProviders.microsoft` provider on `https://login.microsoftonline.com/consumers/v2.0/...` (NOT the built-in `azureActiveDirectory`/`/common` provider, which rejected personal-account tokens on issuer validation). `/login/microsoft` → `/.auth/login/microsoft`. App registration `StockProAI-Microsoft-Auth` (client `66f99dae-…`) must keep redirect URIs `https://www.stockproai.net/.auth/login/microsoft/callback` and the orange-forest backup host.
+- Users are matched by **email** everywhere, so switching providers/customers doesn't lose accounts.
 
 ## Dashboard Tabs (11)
 1. **Start Here** — Welcome, YouTube education, feature guide

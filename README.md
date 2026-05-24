@@ -1,74 +1,46 @@
-# React + TypeScript + Vite
+# StockPro AI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+[stockproai.net](https://www.stockproai.net) — a subscription SaaS for AI-powered stock market analysis: ChartGPT, Deep Research, and Halal screening (Claude), real-time market data (Polygon.io), market breadth, sector rotation, and trading tools.
 
-Currently, two official plugins are available:
+> For full architecture, conventions, and operational detail, see **[CLAUDE.md](./CLAUDE.md)**. This README is the quick orientation.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Stack
+- **Frontend:** React 19 + TypeScript, Vite 7, Tailwind CSS 4 (`src/`)
+- **Backend:** Python Azure Functions (`api/`)
+- **Data:** PostgreSQL (`DATABASE_URL`) + Redis cache
+- **Hosting:** Azure Static Web Apps (managed functions)
+- **Payments:** Stripe ($6.99/mo)
+- **AI:** Claude (Sonnet) · **Market data:** Polygon.io
 
-## React Compiler
+## Auth
+- **Google** — built-in SWA provider.
+- **Microsoft (personal accounts / Live IDs only)** — custom OIDC provider on the `consumers` endpoint. Work/school Microsoft accounts are intentionally not supported (they use Google). See *Auth notes* in CLAUDE.md.
+- Users are identified by **email** throughout, so provider changes never orphan an account.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Subscriptions (Stripe ↔ Postgres)
+Access is granted while the user has an `active`/`trialing` subscription with `current_period_end > NOW()` — i.e. through their last paid day. Key reliability properties (details in CLAUDE.md → *Subscription system*):
+- `subscription-status` **self-heals from Stripe on login** — covers missed webhooks, stale trial rows, renewals, and duplicate Stripe customers.
+- The Stripe **webhook retries** on failure (returns 500, not a silent 200).
+- **Checkout reuses one Stripe customer** and **blocks re-subscribe** when already active (prevents double-billing).
 
-## Expanding the ESLint configuration
+### Admin tools (Admin → Data Tools)
+All exposed on the `subscription-status` function via query params (the standalone admin sync functions are not reliably registered by the SWA host):
+- **Sync All from Stripe** (`?report=sync-all-dry` / `?report=sync-all`) — bulk, idempotent reconcile of every Stripe subscription into the DB.
+- **Find Double-Billed Users** (`?report=double-bills`) — emails with >1 active Stripe subscription.
+- Per-user force-sync: `?sync=<email>`.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Develop
+```bash
+npm install
+npm run dev       # Vite dev server
+npm run build     # tsc -b && vite build
+npm run lint
 ```
+API functions run under Azure Functions Core Tools (`api/`, Python 3.11).
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Deploy
+**`git push origin master` only** — GitHub Actions (`Azure/static-web-apps-deploy@v1`) builds the frontend and the Python API via Oryx.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+> ⚠️ Do **not** use the `swa deploy` CLI for this project — it skips Oryx and breaks the Python API (psycopg2/stripe/anthropic deps don't get installed).
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-# Trigger deployment Sun, Feb  1, 2026  6:42:19 PM
+Secrets/config (Stripe keys, Google/Microsoft OAuth, `DATABASE_URL`, Redis, Polygon, Claude, `DAILY_EMAIL_KEY`) live in Azure Portal app settings. Routing and auth providers are in `staticwebapp.config.json`.
