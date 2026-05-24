@@ -1061,16 +1061,17 @@ def delete_summaries_by_dates(dates):
     return deleted
 
 
-def get_paid_subscribers_for_email():
-    """Paid/trialing subscribers (Stripe-overlayed) who have not opted out.
+def get_email_recipients():
+    """SINGLE SOURCE OF TRUTH for who receives ANY StockPro email.
 
-    Sources truth from get_all_users() (live Stripe overlay) instead of the
-    local `subscriptions` table, so paid users whose local row is missing or
-    stale (missed webhook, legacy duplicate Stripe customer, etc.) are still
-    emailed. Previously this read only the local table, so the daily send
-    reached far fewer people than the admin "Emails" tab reported as subscribed.
-    Keeps parity with get_email_subscribers_report() and
-    get_broadcast_recipient_emails().
+    Every paid/trialing subscriber (sourced from get_all_users() — the live
+    Stripe overlay, NOT the local subscriptions table) who has not opted out.
+    Returns a list of {'email', 'name'} deduped by lowercased email.
+
+    Both the daily recap (get_paid_subscribers_for_email) and manual broadcasts
+    (get_broadcast_recipient_emails) delegate here, so every email type reaches
+    the exact same audience and they can never drift apart. Mirrors the admin
+    "Emails" tab (get_email_subscribers_report), which also uses the overlay.
     """
     merged = get_all_users()
     paid = [
@@ -1101,6 +1102,11 @@ def get_paid_subscribers_for_email():
         if e and e not in opted_out and e not in seen:
             seen[e] = {'email': u.get('email'), 'name': u.get('name')}
     return list(seen.values())
+
+
+def get_paid_subscribers_for_email():
+    """Daily-recap recipients — delegates to get_email_recipients() (shared truth)."""
+    return get_email_recipients()
 
 
 def update_email_opt_out(email: str, opt_out: bool):
@@ -1136,36 +1142,13 @@ def log_email_send(email: str, send_date: str, status: str, error_message: str =
 # ─── Broadcast queue helpers ────────────────────────────────────────────
 
 def get_broadcast_recipient_emails():
-    """Return distinct emails for paid subscribers who have NOT opted out.
+    """Manual/broadcast recipients — the SAME audience as the daily recap.
 
-    Sources subscription truth from `get_all_users()` (Stripe-overlayed),
-    so trialing users and Stripe-only customers without local rows are
-    included. This guarantees parity with the admin "Emails" tab.
+    Delegates to get_email_recipients() (shared source of truth) and returns
+    just the email addresses, so a manual broadcast and the daily recap always
+    reach the identical set of paid, opted-in subscribers.
     """
-    merged = get_all_users()
-    paid = [
-        u for u in merged
-        if u.get('subscription_status') in ('active', 'trialing')
-        and u.get('email')
-    ]
-    if not paid:
-        return []
-
-    emails = sorted({u['email'].lower().strip() for u in paid})
-
-    conn = get_connection()
-    cur = get_cursor(conn)
-    cur.execute("""
-        SELECT LOWER(u.email) AS email
-        FROM users u
-        WHERE LOWER(u.email) = ANY(%s)
-          AND COALESCE(u.email_opt_out, false) = true
-    """, (emails,))
-    opted_out = {r['email'] for r in cur.fetchall()}
-    cur.close()
-    conn.close()
-
-    return [e for e in emails if e not in opted_out]
+    return [u['email'] for u in get_email_recipients()]
 
 
 def enqueue_broadcast(broadcast_id: str, recipients: list[str], subject: str,
