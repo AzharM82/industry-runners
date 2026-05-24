@@ -26,6 +26,7 @@ from shared.database import (
     get_or_create_user_with_trial,
     update_user_stripe_customer,
     create_subscription,
+    update_subscription,
     get_subscription_by_stripe_id,
     get_all_users,  # canonical Stripe-overlayed users list
 )
@@ -94,9 +95,31 @@ def auto_sync_stripe_subscription(email: str, user_id: str) -> tuple:
         # Check if subscription already exists in our DB
         existing = get_subscription_by_stripe_id(stripe_sub.id)
         if existing:
-            logging.info(f"Subscription {stripe_sub.id} already exists in DB")
-            debug_info['action'] = 'found_existing'
-            return existing, debug_info
+            # Refresh status + current_period_end from the live Stripe sub. A
+            # monthly renewal extends current_period_end via webhook; if that
+            # webhook was missed, the stale local period_end would wrongly revoke
+            # access after the prior period even though the user renewed. Refresh
+            # here so access tracks the actual paid-through date.
+            from shared.stripe_helpers import get_subscription_period
+            _, refreshed_period_end = get_subscription_period(stripe_sub)
+            if refreshed_period_end is None:
+                # Don't null out the date (that would revoke access). Keep the
+                # existing period, or a 30-day fallback if there isn't one.
+                existing_end = existing.get('current_period_end')
+                refreshed_period_end = (
+                    int(existing_end.timestamp()) if existing_end
+                    else int(datetime.now().timestamp()) + (30 * 24 * 60 * 60)
+                )
+            refreshed_cancel = bool(getattr(stripe_sub, 'cancel_at_period_end', False))
+            update_subscription(
+                stripe_subscription_id=stripe_sub.id,
+                status=stripe_sub.status,
+                period_end=refreshed_period_end,
+                cancel_at_period_end=refreshed_cancel,
+            )
+            debug_info['action'] = 'refreshed_existing'
+            logging.info(f"Refreshed existing subscription {stripe_sub.id} ({stripe_sub.status}) for {email} from Stripe")
+            return get_subscription_by_stripe_id(stripe_sub.id), debug_info
 
         # Delete any trial subscriptions for this user
         conn = get_connection()
@@ -237,6 +260,22 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 }
                 return func.HttpResponse(
                     json.dumps(payload, default=json_serializer),
+                    mimetype='application/json'
+                )
+            elif report_type in ('sync-all', 'sync-all-dry'):
+                # Bulk Stripe→DB reconciliation. Lives here (on the reliably
+                # registered subscription-status function) because the dedicated
+                # admin-sync-all-stripe function is not being registered by the
+                # SWA managed Functions host. Iterates Stripe subscriptions, so it
+                # is immune to the duplicate-customer issue and is idempotent.
+                from shared.stripe_helpers import reconcile_all_stripe_subscriptions
+                dry = (
+                    report_type == 'sync-all-dry'
+                    or (req.params.get('dry') or '').lower() in ('1', 'true', 'yes')
+                )
+                results = reconcile_all_stripe_subscriptions(dry_run=dry)
+                return func.HttpResponse(
+                    json.dumps(results, default=json_serializer),
                     mimetype='application/json'
                 )
             elif report_type == 'email-subscribers':

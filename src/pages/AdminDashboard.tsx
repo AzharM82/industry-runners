@@ -1205,7 +1205,7 @@ export function AdminDashboard() {
                       setSubDebugLoading('sync-all-dry');
                       setSubDebugResult(null);
                       try {
-                        const r = await fetch('/api/admin-sync-all-stripe?dry=1', { method: 'POST' });
+                        const r = await fetch('/api/subscription-status?report=sync-all-dry');
                         const text = await r.text();
                         try {
                           setSubDebugResult(JSON.parse(text));
@@ -1230,7 +1230,7 @@ export function AdminDashboard() {
                       setSubDebugLoading('sync-all');
                       setSubDebugResult(null);
                       try {
-                        const r = await fetch('/api/admin-sync-all-stripe', { method: 'POST' });
+                        const r = await fetch('/api/subscription-status?report=sync-all');
                         const text = await r.text();
                         try {
                           setSubDebugResult(JSON.parse(text));
