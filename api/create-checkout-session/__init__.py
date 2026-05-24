@@ -13,7 +13,7 @@ import azure.functions as func
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from shared.database import get_or_create_user, init_schema
+from shared.database import get_or_create_user, init_schema, update_user_stripe_customer
 from shared.admin import is_admin
 
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
@@ -88,11 +88,31 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         logging.info(f"Creating Stripe session for {user_email} with price {STRIPE_PRICE_ID}")
 
+        # Reuse an existing Stripe customer for this email if one exists, otherwise
+        # create one. Passing `customer=` (instead of `customer_email=`) prevents
+        # Stripe from minting a brand-new Customer object on every checkout, which
+        # previously left users with duplicate customers and the live subscription
+        # on only one of them — hiding it from lookups and showing paid users a paywall.
+        existing = stripe.Customer.list(email=user_email, limit=1)
+        if existing.data:
+            customer_id = existing.data[0].id
+            logging.info(f"Reusing existing Stripe customer {customer_id} for {user_email}")
+        else:
+            customer_id = stripe.Customer.create(
+                email=user_email,
+                name=user_name,
+                metadata={'user_id': str(user['id'])}
+            ).id
+            logging.info(f"Created new Stripe customer {customer_id} for {user_email}")
+
+        # Link the customer id on our user record so admin/lookup paths can use it.
+        update_user_stripe_customer(user_email, customer_id)
+
         # Create Stripe checkout session
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
             mode='subscription',
-            customer_email=user_email,
+            customer=customer_id,
             line_items=[{
                 'price': STRIPE_PRICE_ID,
                 'quantity': 1,

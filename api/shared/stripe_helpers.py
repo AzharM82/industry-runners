@@ -14,6 +14,50 @@ first renewal.
 from __future__ import annotations
 from typing import Any
 
+import logging
+import os
+
+import stripe
+
+# stripe is a module-level singleton; importing call sites also set this, but
+# set it here too so the helpers below work even if imported first.
+stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
+
+
+def find_active_subscription_for_email(email: str, statuses=('active', 'trialing')):
+    """Find a live subscription across ALL Stripe customers sharing this email.
+
+    Checkout historically created a new Customer object on every session (it
+    passed `customer_email` instead of `customer`), so one user can have several
+    Stripe customers with the same email — with the live subscription on only
+    one of them. Looking at just one customer (the old `limit=1` lookup) missed
+    the sub and showed paying users the paywall. This scans every customer for
+    the email and returns the first active/trialing subscription found.
+
+    Returns a tuple of (stripe_subscription, customer), or (None, None).
+    """
+    email = (email or '').lower().strip()
+    if not email:
+        return None, None
+
+    try:
+        customers = stripe.Customer.list(email=email, limit=100)
+    except Exception as e:
+        logging.error(f"find_active_subscription_for_email: Customer.list failed for {email}: {e}")
+        return None, None
+
+    for customer in customers.auto_paging_iter():
+        for status in statuses:
+            try:
+                subs = stripe.Subscription.list(customer=customer.id, status=status, limit=1)
+            except Exception as e:
+                logging.error(f"find_active_subscription_for_email: Subscription.list failed for customer {customer.id}: {e}")
+                continue
+            if subs.data:
+                return subs.data[0], customer
+
+    return None, None
+
 
 def _coerce(obj: Any, key: str) -> Any:
     """Read a field from either an object (attribute) or a dict."""

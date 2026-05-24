@@ -78,32 +78,20 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         logging.info(f"Admin {admin_email} syncing subscription for {target_email}")
 
-        # Find customer in Stripe
-        customers = stripe.Customer.list(email=target_email, limit=1)
-        if not customers.data:
-            return func.HttpResponse(
-                json.dumps({'error': f'No Stripe customer found for {target_email}'}),
-                status_code=404,
-                mimetype='application/json'
-            )
-
-        customer = customers.data[0]
-        customer_id = customer.id
-
-        # Find subscriptions for this customer
-        subscriptions = stripe.Subscription.list(customer=customer_id, status='active', limit=1)
-        if not subscriptions.data:
-            # Also check for trialing
-            subscriptions = stripe.Subscription.list(customer=customer_id, status='trialing', limit=1)
-
-        if not subscriptions.data:
+        # Find the live subscription across ALL Stripe customers for this email.
+        # Checkout historically created a new customer per session, so a user can
+        # have several same-email customers with the sub on only one — scanning
+        # just one (the old limit=1 lookup) failed to find paid subscriptions.
+        from shared.stripe_helpers import find_active_subscription_for_email
+        stripe_sub, customer = find_active_subscription_for_email(target_email)
+        if not stripe_sub:
             return func.HttpResponse(
                 json.dumps({'error': f'No active subscription found for {target_email}'}),
                 status_code=404,
                 mimetype='application/json'
             )
 
-        stripe_sub = subscriptions.data[0]
+        customer_id = customer.id
 
         # Ensure user exists in our database
         user = get_user_by_email(target_email)

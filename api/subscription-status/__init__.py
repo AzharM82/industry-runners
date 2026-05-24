@@ -69,43 +69,27 @@ def auto_sync_stripe_subscription(email: str, user_id: str) -> tuple:
         return None, debug_info
 
     try:
-        # Find customer in Stripe by email
-        customers = stripe.Customer.list(email=email, limit=1)
-        if not customers.data:
-            logging.info(f"No Stripe customer found for {email}")
-            debug_info['stripe_customer'] = None
-            debug_info['error'] = f'No Stripe customer found for email: {email}'
+        # Find the live subscription across ALL Stripe customers for this email.
+        # Checkout historically created a new customer per session, so the active
+        # sub may live on any one of several same-email customers — scanning just
+        # one (the old limit=1 lookup) showed paying users the paywall.
+        from shared.stripe_helpers import find_active_subscription_for_email
+        stripe_sub, customer = find_active_subscription_for_email(email)
+
+        if not stripe_sub:
+            logging.info(f"No active/trialing Stripe subscription found for {email}")
+            debug_info['error'] = 'No active/trialing subscription found across Stripe customers'
             return None, debug_info
 
-        customer = customers.data[0]
         customer_id = customer.id
         debug_info['stripe_customer_id'] = customer_id
         debug_info['stripe_customer_email'] = customer.email
-        logging.info(f"Found Stripe customer {customer_id} for {email}")
+        debug_info['stripe_subscription_id'] = stripe_sub.id
+        debug_info['stripe_subscription_status'] = stripe_sub.status
+        logging.info(f"Found Stripe subscription {stripe_sub.id} ({stripe_sub.status}) for {email} on customer {customer_id}")
 
         # Update stripe customer ID on user
         update_user_stripe_customer(email, customer_id)
-
-        # Find active/trialing subscriptions
-        subscriptions = stripe.Subscription.list(customer=customer_id, status='active', limit=1)
-        if not subscriptions.data:
-            subscriptions = stripe.Subscription.list(customer=customer_id, status='trialing', limit=1)
-
-        if not subscriptions.data:
-            # Check for ANY subscriptions to see status
-            all_subs = stripe.Subscription.list(customer=customer_id, limit=5)
-            if all_subs.data:
-                debug_info['all_subscription_statuses'] = [s.status for s in all_subs.data]
-            else:
-                debug_info['all_subscription_statuses'] = []
-            logging.info(f"No active subscription found in Stripe for {email}")
-            debug_info['error'] = 'No active/trialing subscription found'
-            return None, debug_info
-
-        stripe_sub = subscriptions.data[0]
-        debug_info['stripe_subscription_id'] = stripe_sub.id
-        debug_info['stripe_subscription_status'] = stripe_sub.status
-        logging.info(f"Found Stripe subscription {stripe_sub.id} with status {stripe_sub.status}")
 
         # Check if subscription already exists in our DB
         existing = get_subscription_by_stripe_id(stripe_sub.id)
@@ -313,31 +297,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         sync_email = req.params.get('sync', '').lower().strip()
         if sync_email and is_admin(user_email):
             try:
-                # Find customer in Stripe
-                customers = stripe.Customer.list(email=sync_email, limit=1)
-                if not customers.data:
-                    return func.HttpResponse(
-                        json.dumps({'error': f'No Stripe customer found for {sync_email}'}),
-                        status_code=404,
-                        mimetype='application/json'
-                    )
-
-                customer = customers.data[0]
-                customer_id = customer.id
-
-                # Find subscriptions for this customer
-                subscriptions = stripe.Subscription.list(customer=customer_id, status='active', limit=1)
-                if not subscriptions.data:
-                    subscriptions = stripe.Subscription.list(customer=customer_id, status='trialing', limit=1)
-
-                if not subscriptions.data:
+                # Find the live subscription across ALL Stripe customers for this
+                # email (a user may have several same-email customers; the sub
+                # lives on only one of them).
+                from shared.stripe_helpers import find_active_subscription_for_email
+                stripe_sub, customer = find_active_subscription_for_email(sync_email)
+                if not stripe_sub:
                     return func.HttpResponse(
                         json.dumps({'error': f'No active subscription found for {sync_email}'}),
                         status_code=404,
                         mimetype='application/json'
                     )
 
-                stripe_sub = subscriptions.data[0]
+                customer_id = customer.id
 
                 # Ensure user exists in our database
                 target_user = get_user_by_email(sync_email)
