@@ -209,6 +209,50 @@ def reconcile_all_stripe_subscriptions(dry_run: bool = False) -> dict:
     return results
 
 
+def find_duplicate_active_subscriptions() -> dict:
+    """Find emails with more than one active/trialing Stripe subscription.
+
+    These are likely double-billed: the legacy checkout passed customer_email
+    (not customer), so a user who subscribed twice got two customers, each with
+    its own active subscription = two monthly charges. Read-only on Stripe.
+
+    Returns {'count': N, 'duplicates': {email: [ {subscription_id, customer_id,
+    status, created}, ... ]}}.
+    """
+    from collections import defaultdict
+
+    by_email = defaultdict(list)
+    for status_filter in ('active', 'trialing'):
+        cursor = None
+        while True:
+            page = stripe.Subscription.list(
+                status=status_filter, limit=100, starting_after=cursor,
+                expand=['data.customer'],
+            )
+            for sub in page.data:
+                try:
+                    customer = sub.customer
+                    if isinstance(customer, str):
+                        customer = stripe.Customer.retrieve(customer)
+                    email = (getattr(customer, 'email', None) or '').lower().strip()
+                    if not email:
+                        continue
+                    by_email[email].append({
+                        'subscription_id': sub.id,
+                        'customer_id': customer.id,
+                        'status': sub.status,
+                        'created': getattr(sub, 'created', None),
+                    })
+                except Exception as e:
+                    logging.error(f"find_duplicate_active_subscriptions: error on {getattr(sub, 'id', '?')}: {e}")
+            if not page.has_more:
+                break
+            cursor = page.data[-1].id
+
+    duplicates = {email: subs for email, subs in by_email.items() if len(subs) > 1}
+    return {'count': len(duplicates), 'duplicates': duplicates}
+
+
 def _coerce(obj: Any, key: str) -> Any:
     """Read a field from either an object (attribute) or a dict."""
     val = getattr(obj, key, None)

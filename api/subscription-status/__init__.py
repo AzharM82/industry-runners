@@ -278,6 +278,15 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     json.dumps(results, default=json_serializer),
                     mimetype='application/json'
                 )
+            elif report_type == 'double-bills':
+                # List emails with >1 active Stripe subscription (potential
+                # double-billing from the legacy duplicate-customer checkout).
+                from shared.stripe_helpers import find_duplicate_active_subscriptions
+                results = find_duplicate_active_subscriptions()
+                return func.HttpResponse(
+                    json.dumps(results, default=json_serializer),
+                    mimetype='application/json'
+                )
             elif report_type == 'email-subscribers':
                 from shared.database import get_email_subscribers_report
                 subscribers = get_email_subscribers_report()

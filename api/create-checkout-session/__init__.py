@@ -15,6 +15,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.database import get_or_create_user, init_schema, update_user_stripe_customer
 from shared.admin import is_admin
+from shared.stripe_helpers import find_active_subscription_for_email
 
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
 STRIPE_PRICE_ID = os.environ.get('STRIPE_PRICE_ID')
@@ -85,6 +86,17 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         if not STRIPE_PRICE_ID:
             logging.error("STRIPE_PRICE_ID not configured")
             return redirect_with_error("Stripe price ID not configured")
+
+        # Don't let an already-subscribed user start a second checkout — that
+        # creates a duplicate subscription and double-bills them. Send them to
+        # the dashboard instead. (Scans all of the email's Stripe customers.)
+        existing_sub, _existing_cust = find_active_subscription_for_email(user_email)
+        if existing_sub:
+            logging.info(f"{user_email} already has active subscription {existing_sub.id}; skipping checkout")
+            return func.HttpResponse(
+                status_code=302,
+                headers={'Location': f"{SITE_URL}/dashboard?already_subscribed=1"}
+            )
 
         logging.info(f"Creating Stripe session for {user_email} with price {STRIPE_PRICE_ID}")
 

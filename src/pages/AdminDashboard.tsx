@@ -25,7 +25,8 @@ import {
   AlertCircle,
   TrendingUp,
   BarChart3,
-  Mail
+  Mail,
+  AlertTriangle
 } from 'lucide-react';
 
 interface DailyReport {
@@ -192,7 +193,7 @@ export function AdminDashboard() {
   const [toolResults, setToolResults] = useState<Record<string, { status: 'idle' | 'loading' | 'success' | 'error'; message?: string }>>({});
   const [subDebugEmail, setSubDebugEmail] = useState('');
   const [subDebugResult, setSubDebugResult] = useState<unknown>(null);
-  const [subDebugLoading, setSubDebugLoading] = useState<'idle' | 'debug' | 'sync' | 'sync-all-dry' | 'sync-all'>('idle');
+  const [subDebugLoading, setSubDebugLoading] = useState<'idle' | 'debug' | 'sync' | 'sync-all-dry' | 'sync-all' | 'double-bills'>('idle');
 
   const runDataTool = async (toolKey: string, url: string) => {
     setToolResults(prev => ({ ...prev, [toolKey]: { status: 'loading' } }));
@@ -1248,6 +1249,30 @@ export function AdminDashboard() {
                   >
                     {subDebugLoading === 'sync-all' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wrench className="w-4 h-4" />}
                     Sync All from Stripe (Apply)
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setSubDebugLoading('double-bills');
+                      setSubDebugResult(null);
+                      try {
+                        const r = await fetch('/api/subscription-status?report=double-bills');
+                        const text = await r.text();
+                        try {
+                          setSubDebugResult(JSON.parse(text));
+                        } catch {
+                          setSubDebugResult({ _http_status: r.status, _raw_body_preview: text.slice(0, 500) });
+                        }
+                      } catch (e) {
+                        setSubDebugResult({ error: String(e) });
+                      } finally {
+                        setSubDebugLoading('idle');
+                      }
+                    }}
+                    disabled={subDebugLoading !== 'idle'}
+                    className="px-4 py-2 bg-amber-700 text-white rounded-lg hover:bg-amber-600 transition disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {subDebugLoading === 'double-bills' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+                    Find Double-Billed Users
                   </button>
                   <span className="text-gray-500 text-xs self-center">
                     Reconciles every Stripe subscription against the DB. Use Dry Run first to preview changes.
