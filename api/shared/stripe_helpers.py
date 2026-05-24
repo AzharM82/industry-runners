@@ -99,10 +99,15 @@ def reconcile_all_stripe_subscriptions(dry_run: bool = False) -> dict:
         conn = get_connection()
         cur = get_cursor(conn)
         period_start, period_end = get_subscription_period(stripe_sub)
+        # The period_* columns are `timestamp` — Stripe gives Unix ints, so cast
+        # with to_timestamp(). COALESCE keeps the existing value if Stripe returns
+        # None, so we never null out a date (which would revoke access).
         cur.execute(
             """
             UPDATE subscriptions
-            SET status = %s, current_period_start = %s, current_period_end = %s,
+            SET status = %s,
+                current_period_start = COALESCE(to_timestamp(%s), current_period_start),
+                current_period_end = COALESCE(to_timestamp(%s), current_period_end),
                 cancel_at_period_end = %s, updated_at = NOW()
             WHERE stripe_subscription_id = %s
             """,
