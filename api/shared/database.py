@@ -12,10 +12,30 @@ from .timezone import today_pst
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 def get_connection():
-    """Get a database connection."""
+    """Get a database connection.
+
+    `connect_timeout` caps how long we wait to establish the connection, and a
+    server-side `statement_timeout` caps how long any single query may run —
+    including time spent waiting on a row lock. Without these, a locked/slow
+    query blocks until the 5-minute functionTimeout and the host kills the
+    worker with an empty-body 500; under Stripe's webhook retry storm that
+    became a lock-contention death spiral on the `subscriptions` rows. Failing
+    fast turns a hang into a normal exception the caller can catch (and the
+    webhook then ACKs 200 and relies on the login self-heal to reconcile).
+    """
     if not DATABASE_URL:
         raise Exception("DATABASE_URL not configured")
-    return psycopg2.connect(DATABASE_URL)
+    return psycopg2.connect(
+        DATABASE_URL,
+        connect_timeout=10,
+        # statement_timeout: any single query (incl. waiting on a row lock)
+        #   aborts after 15s instead of hanging to the 5-min functionTimeout.
+        # idle_in_transaction_session_timeout: if a worker is killed after a
+        #   write but before COMMIT, Postgres aborts the orphaned transaction
+        #   and releases its locks (otherwise it blocks every later writer).
+        # 15s is far above any legitimate query here (all are simple CRUD).
+        options='-c statement_timeout=15000 -c idle_in_transaction_session_timeout=15000',
+    )
 
 def get_cursor(conn):
     """Get a cursor that returns dicts."""
