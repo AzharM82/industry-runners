@@ -38,8 +38,12 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     sig_header = req.headers.get('Stripe-Signature')
 
     if not WEBHOOK_SECRET:
-        logging.error("STRIPE_WEBHOOK_SECRET not configured")
-        return func.HttpResponse(status_code=500)
+        # Empty-body 500 here is indistinguishable from a host crash in the
+        # Stripe dashboard — give it a readable body so the cause is obvious.
+        logging.error("STRIPE_WEBHOOK_SECRET not configured in app settings")
+        return func.HttpResponse(
+            "STRIPE_WEBHOOK_SECRET not configured", status_code=500
+        )
 
     try:
         event = stripe.Webhook.construct_event(
@@ -47,10 +51,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         )
     except ValueError as e:
         logging.error(f"Invalid payload: {e}")
-        return func.HttpResponse(status_code=400)
+        return func.HttpResponse("invalid payload", status_code=400)
     except stripe.error.SignatureVerificationError as e:
+        # Secret is SET but doesn't match this endpoint's signing secret.
         logging.error(f"Invalid signature: {e}")
-        return func.HttpResponse(status_code=400)
+        return func.HttpResponse("invalid signature (secret mismatch)", status_code=400)
 
     event_type = event['type']
     data = event['data']['object']
