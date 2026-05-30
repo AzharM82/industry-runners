@@ -60,10 +60,10 @@ industry-runners/
 │       ├── focusstocks.ts   # Focus stock symbols
 │       ├── sector-stocks.ts # Sector stock mappings
 │       └── breadth-universe.ts # Breadth calculation universe
-├── api/                    # Python Azure Functions backend
+├── api/                    # Python Azure Functions backend (~37 endpoints)
+│   ├── # --- Market data ---
 │   ├── quotes/             # Real-time stock quotes (Polygon.io)
 │   ├── details/            # Stock detail data
-│   ├── analysis/           # Fundamental analysis endpoint
 │   ├── breadth/            # Real-time breadth indicators
 │   ├── breadth-daily/      # Finviz daily breadth (NH/NL, RSI, SMA)
 │   ├── breadth-history/    # Historical breadth data
@@ -73,21 +73,37 @@ industry-runners/
 │   ├── market-summary/     # AI daily market summaries
 │   ├── run-prompt/         # AI analysis (ChartGPT, Deep Research, Halal)
 │   ├── investments/        # Investment tracker CRUD
-│   ├── create-checkout-session/ # Stripe checkout
-│   ├── stripe-webhook/     # Stripe webhook handler
-│   ├── subscription-status/ # Auth + subscription check + admin reports
+│   ├── # --- Billing (Stripe) ---
+│   ├── create-checkout-session/ # Stripe checkout (reuses 1 customer, blocks re-subscribe)
+│   ├── stripe-webhook/     # Stripe webhook handler (returns 500 on failure so Stripe retries)
+│   ├── subscription-status/ # Auth + sub check + self-heal-from-Stripe + admin ?report= reconcile
+│   ├── cancel-subscription/ # Self-serve cancel (Stripe cancel_at_period_end=true)
+│   ├── # --- Email pipeline ---
+│   ├── send-daily-email/   # Daily recap email cron (paid subscribers)
+│   ├── broadcast-send/     # Admin broadcast: enqueue rows into broadcast_queue
+│   ├── broadcast-drain/    # External stockproai-cron drains queue every 30s via Gmail SMTP
+│   ├── unsubscribe/        # Email opt-out handler
+│   ├── # --- Users / auth ---
 │   ├── track-login/        # Login analytics
 │   ├── update-profile/     # Phone number collection
-│   ├── health-check/       # System health
+│   ├── # --- Admin ---
 │   ├── admin-report/       # Admin daily reports
 │   ├── admin-user/         # Admin user lookup
 │   ├── admin-user-status/  # Admin user status
 │   ├── admin-fix-trials/   # Bulk fix trial users
-│   ├── admin-sync-subscription/ # Sync Stripe subscriptions
+│   ├── admin-sync-subscription/   # Per-user Stripe→DB sync
+│   ├── admin-sync-all-stripe/     # Bulk reconcile (NOT registered by SWA host — use subscription-status ?report=sync-all)
+│   ├── admin-stripe-diag/         # Live Stripe diag (NOT registered by SWA host — use subscription-status ?diag=)
+│   ├── admin-debug-subscription/  # Subscription debug helper
+│   ├── # --- Data fixes / diagnostics ---
 │   ├── fix-breadth/        # Fix/refresh breadth data
+│   ├── fix-realtime-breadth/ # Fix real-time breadth snapshot
 │   ├── fix-sector-nhnl/    # Fix sector NH/NL history
 │   ├── debug-breadth/      # Debug breadth cache
-│   └── shared/             # Shared Python utilities
+│   ├── test-webhook-sync/  # Webhook sync test harness
+│   ├── health-check/       # System health
+│   ├── ping/               # Liveness / cache-bypass diagnostics
+│   └── shared/             # Shared Python utilities (database.py, stripe_helpers.py, admin.py)
 ├── staticwebapp.config.json # Azure SWA routing, auth providers, CORS
 ├── vite.config.ts          # Vite build config
 ├── index.html              # HTML entry point
