@@ -24,6 +24,20 @@ from shared.database import (
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
 WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
 
+# Bound every Stripe API call. A hung Stripe request (the only remaining
+# unbounded network op in the handlers, now that DB calls have timeouts) would
+# otherwise block until the 5-minute functionTimeout and the host kills the
+# worker with an empty-body 500 — which a try/except can't catch and which
+# fuels Stripe's retry storm. With a 10s timeout and no SDK-level retries a slow
+# call raises quickly, the handler's except catches it, and we ACK 200 (the
+# login self-heal reconciles). Guarded so an SDK version lacking RequestsClient
+# can never break function load.
+try:
+    stripe.max_network_retries = 0
+    stripe.default_http_client = stripe.http_client.RequestsClient(timeout=10)
+except Exception as _e:  # pragma: no cover - defensive
+    logging.warning(f"could not install bounded Stripe http client: {_e}")
+
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     # Best-effort schema init. This must NEVER fail the webhook: a verified
