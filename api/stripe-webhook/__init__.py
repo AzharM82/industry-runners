@@ -26,8 +26,13 @@ WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
-    # Initialize schema to ensure tables exist
-    init_schema()
+    # Best-effort schema init. This must NEVER fail the webhook: a verified
+    # Stripe event has to be acknowledged (2xx) even if this hiccups, otherwise
+    # Stripe retries for ~3 days and then DISABLES the endpoint.
+    try:
+        init_schema()
+    except Exception as e:
+        logging.error(f"init_schema failed in webhook (continuing anyway): {e}")
 
     payload = req.get_body().decode('utf-8')
     sig_header = req.headers.get('Stripe-Signature')
@@ -49,14 +54,25 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     event_type = event['type']
     data = event['data']['object']
+    event_id = event.get('id')
 
-    logging.info(f"Received Stripe webhook: {event_type}")
+    logging.info(f"Received Stripe webhook: {event_type} ({event_id})")
 
-    # Handlers return True on success (or permanent, non-retryable skip) and
-    # False on a transient failure (e.g. a DB write that didn't land). A False
-    # result — or an unexpected exception — makes us return 500 so Stripe RETRIES.
-    # Previously this always returned 200, so a transient hiccup permanently
-    # dropped the event and left paying users stuck on their trial row.
+    # ------------------------------------------------------------------
+    # ACK-on-receipt policy (do NOT revert to "500 on failure").
+    #
+    # Once the signature is verified we ALWAYS return 2xx, even if our own
+    # processing fails. Returning 500 on failure (the previous behavior) made
+    # Stripe retry permanently-unprocessable "poison" events for ~3 days and
+    # then DISABLE the endpoint — which is what triggered Stripe's disablement
+    # warning. It is safe to ACK and reconcile out-of-band because Stripe is
+    # the source of truth and the local DB is a cache we refresh on read:
+    #   • subscription-status self-heals from Stripe on every login
+    #     (auto_sync_stripe_subscription), so a missed event is recovered on
+    #     the user's next dashboard load; and
+    #   • admin `?report=sync-all` bulk-reconciles everything on demand.
+    # The handler booleans below are kept for observability/logging only.
+    # ------------------------------------------------------------------
     handled = True
     try:
         if event_type == 'checkout.session.completed':
@@ -82,16 +98,20 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             handled = handle_invoice_paid(data)
 
     except Exception as e:
-        logging.error(f"Error handling {event_type}: {e}")
+        logging.error(f"Error handling {event_type} ({event_id}): {e}")
         import traceback
         logging.error(traceback.format_exc())
-        # Return 500 so Stripe retries (it backs off and retries for ~3 days).
-        return func.HttpResponse(status_code=500)
+        # ACK anyway — see policy note above. Self-heal-on-login recovers it.
+        return func.HttpResponse(status_code=200)
 
-    # `handled is False` is explicit — None/True both mean "OK, don't retry".
     if handled is False:
-        logging.error(f"Handler for {event_type} reported failure — returning 500 so Stripe retries")
-        return func.HttpResponse(status_code=500)
+        # Permanent / best-effort failure. Log loudly for offline
+        # reconciliation but ACK so Stripe does not retry-then-disable.
+        logging.error(
+            f"Handler for {event_type} ({event_id}) reported failure — "
+            f"ACKing 200 anyway. Self-heal on login will reconcile; run admin "
+            f"?report=sync-all if a user reports missing access."
+        )
 
     return func.HttpResponse(status_code=200)
 

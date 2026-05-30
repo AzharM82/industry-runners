@@ -20,7 +20,7 @@
 ## Subscriptions (Stripe ↔ Postgres)
 Access is granted while the user has an `active`/`trialing` subscription with `current_period_end > NOW()` — i.e. through their last paid day. Key reliability properties (details in CLAUDE.md → *Subscription system*):
 - `subscription-status` **self-heals from Stripe on login** — covers missed webhooks, stale trial rows, renewals, and duplicate Stripe customers.
-- The Stripe **webhook retries** on failure (returns 500, not a silent 200).
+- The Stripe **webhook ACKs 2xx on receipt** (after signature verification) and leans on the login self-heal instead of forcing Stripe retries — returning 500 on failure previously got the endpoint flagged for disablement.
 - **Checkout reuses one Stripe customer** and **blocks re-subscribe** when already active (prevents double-billing).
 
 ### Admin tools (Admin → Data Tools)

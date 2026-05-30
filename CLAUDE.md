@@ -75,7 +75,7 @@ industry-runners/
 │   ├── investments/        # Investment tracker CRUD
 │   ├── # --- Billing (Stripe) ---
 │   ├── create-checkout-session/ # Stripe checkout (reuses 1 customer, blocks re-subscribe)
-│   ├── stripe-webhook/     # Stripe webhook handler (returns 500 on failure so Stripe retries)
+│   ├── stripe-webhook/     # Stripe webhook handler (ACKs 2xx on receipt; self-heal is source of truth — see Subscription system)
 │   ├── subscription-status/ # Auth + sub check + self-heal-from-Stripe + admin ?report= reconcile
 │   ├── cancel-subscription/ # Self-serve cancel (Stripe cancel_at_period_end=true)
 │   ├── # --- Email pipeline ---
@@ -113,7 +113,7 @@ industry-runners/
 ## Key Architecture Decisions
 - **Auth flow:** Azure SWA handles OAuth redirects → `/.auth/me` returns user → `useAuth` hook checks state → Dashboard checks `/api/subscription-status` for access
 - **Subscription flow:** login → `subscription-status` check → if no access, show paywall → Stripe checkout → webhook updates DB → user gets access
-- **Subscription reliability (see "Subscription system" below):** access is gated on `current_period_end > NOW()`; `subscription-status` self-heals from Stripe on login (covers missed webhooks, stale trials, renewals, and duplicate Stripe customers); the webhook returns 500 on failure so Stripe retries; checkout reuses one Stripe customer and blocks re-subscribe when already active.
+- **Subscription reliability (see "Subscription system" below):** access is gated on `current_period_end > NOW()`; `subscription-status` self-heals from Stripe on login (covers missed webhooks, stale trials, renewals, and duplicate Stripe customers); the webhook ACKs 2xx on receipt and relies on that self-heal rather than retrying; checkout reuses one Stripe customer and blocks re-subscribe when already active.
 - **Data refresh:** Auto-refresh every 5 minutes during market hours (9:30 AM - 4:00 PM ET)
 - **AI prompts:** 30/month per type for paid users, 3 free for beta, unlimited for admins. Results are cached in Redis.
 - **Breadth data:** Dual source — real-time breadth (custom calculation from stock universe) + Finviz daily breadth (NH/NL, RSI, SMA)
@@ -124,7 +124,7 @@ $6.99/mo via Stripe. Local tables: `users` (keyed by lowercased `email`, `stripe
 - **Access rule:** `has_access` = `get_subscription()` returns a row with `status IN ('active','trialing') AND current_period_end > NOW()` — so users keep access until their last paid day (and through the cancel grace period). `past_due` grants no access.
 - **Source of truth is Stripe.** The admin "All Users" view reads Stripe live; the app reads the local DB but **self-heals from Stripe on login** via `auto_sync_stripe_subscription` in `subscription-status/__init__.py`. It runs when there's no local sub OR the only local row is a `trial_`, and it also **refreshes** an existing row's status/`current_period_end` (so a missed renewal webhook doesn't wrongly revoke access).
 - **Cross-customer lookup:** `shared/stripe_helpers.py::find_active_subscription_for_email()` scans **all** Stripe customers for an email (legacy checkout minted a new customer per session, scattering subs). Used by auto-sync, the `?sync=<email>` override, and `admin-sync-subscription`.
-- **Webhook** (`stripe-webhook/`) returns **500 on failure** so Stripe retries (don't revert to "always 200" — that silently drops events).
+- **Webhook** (`stripe-webhook/`) **ACKs 2xx on receipt** — once the Stripe signature is verified it returns 200 even if downstream processing fails (it still returns 400 for a bad signature/payload). It does NOT return 500 to force retries: a permanently-unprocessable "poison" event would then retry for ~3 days and Stripe would DISABLE the endpoint (this happened May 2026). Safe because Stripe is the source of truth and the self-heal-on-login + `?report=sync-all` reconcile recover any event we fail to process. **Do not revert to "500 on failure".**
 - **Checkout** (`create-checkout-session/`) reuses/creates ONE Stripe customer (passes `customer=`, not `customer_email=`) and **blocks a 2nd checkout** when the email already has an active sub (→ `/dashboard?already_subscribed=1`).
 - **Admin reconcile/diagnostics — all on `subscription-status` via `?report=`** (the dedicated `admin-sync-all-stripe` / `admin-stripe-diag` functions are NOT registered by the SWA host — deployed but invisible; don't rely on them):
   - `?report=sync-all-dry` / `?report=sync-all` — bulk Stripe→DB reconcile (`reconcile_all_stripe_subscriptions`), idempotent, surfaced as Admin → Data Tools "Sync All from Stripe" buttons.
