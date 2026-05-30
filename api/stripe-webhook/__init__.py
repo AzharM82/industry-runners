@@ -69,7 +69,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     except stripe.error.SignatureVerificationError as e:
         # Secret is SET but doesn't match this endpoint's signing secret.
         logging.error(f"Invalid signature: {e}")
-        return func.HttpResponse("invalid signature (secret mismatch)", status_code=400)
+        return func.HttpResponse("invalid signature (secret mismatch) [build=cap25b]", status_code=400)
 
     event_type = event['type']
     data = event['data']['object']
