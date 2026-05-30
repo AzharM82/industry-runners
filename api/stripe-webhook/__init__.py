@@ -107,18 +107,27 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         import traceback
         logging.error(traceback.format_exc())
         # ACK anyway — see policy note above. Self-heal-on-login recovers it.
-        return func.HttpResponse(status_code=200)
+        # DIAG: report the outcome in the body so Stripe's delivery panel shows
+        # it. If main() is host-killed mid-handler (timeout/crash), NONE of these
+        # bodies appear and Stripe shows an empty 500 — that absence is the signal.
+        return func.HttpResponse(
+            f"ack(handler-error): {event_type}: {type(e).__name__}: {e}",
+            status_code=200,
+        )
 
     if handled is False:
-        # Permanent / best-effort failure. Log loudly for offline
-        # reconciliation but ACK so Stripe does not retry-then-disable.
         logging.error(
             f"Handler for {event_type} ({event_id}) reported failure — "
             f"ACKing 200 anyway. Self-heal on login will reconcile; run admin "
             f"?report=sync-all if a user reports missing access."
         )
+        return func.HttpResponse(
+            f"ack(handler-false): {event_type}", status_code=200
+        )
 
-    return func.HttpResponse(status_code=200)
+    return func.HttpResponse(
+        f"ack(ok): {event_type} handled={handled}", status_code=200
+    )
 
 
 def get_or_create_user_for_stripe(email: str, customer_id: str = None):
