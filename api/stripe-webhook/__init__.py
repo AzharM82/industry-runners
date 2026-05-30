@@ -422,9 +422,43 @@ def handle_subscription_deleted(subscription):
     logging.info(f"Cancelled subscription {subscription_id}")
 
 
+def _subscription_id_from_invoice(invoice):
+    """Extract the subscription id from an invoice across Stripe API versions.
+
+    Older API versions exposed it at the top level as `invoice.subscription`.
+    As of API 2025+ (e.g. 2025-12-15.clover) that field was REMOVED — the id now
+    lives at `invoice.parent.subscription_details.subscription`, and on each line
+    at `line.parent.subscription_item_details.subscription`. Reading the old
+    top-level field returns None on the new API, which silently turned these
+    invoice handlers into no-ops (renewals/new-signup invoices never synced).
+    """
+    # Old API: top-level field.
+    sub_id = invoice.get('subscription')
+    if sub_id:
+        return sub_id
+
+    # New API: invoice.parent.subscription_details.subscription
+    parent = invoice.get('parent') or {}
+    sub_details = parent.get('subscription_details') or {}
+    sub_id = sub_details.get('subscription')
+    if sub_id:
+        return sub_id
+
+    # Fallback: first line item's parent.subscription_item_details.subscription
+    line_data = (invoice.get('lines') or {}).get('data') or []
+    if line_data:
+        line_parent = line_data[0].get('parent') or {}
+        item_details = line_parent.get('subscription_item_details') or {}
+        sub_id = item_details.get('subscription')
+        if sub_id:
+            return sub_id
+
+    return None
+
+
 def handle_payment_succeeded(invoice):
     """Handle successful payment - sync subscription status."""
-    subscription_id = invoice.get('subscription')
+    subscription_id = _subscription_id_from_invoice(invoice)
     customer_id = invoice.get('customer')
     customer_email = (invoice.get('customer_email') or '').lower().strip()
     
@@ -454,7 +488,7 @@ def handle_payment_succeeded(invoice):
 
 def handle_invoice_paid(invoice):
     """Handle invoice.paid event - another chance to sync subscription."""
-    subscription_id = invoice.get('subscription')
+    subscription_id = _subscription_id_from_invoice(invoice)
     customer_id = invoice.get('customer')
     customer_email = (invoice.get('customer_email') or '').lower().strip()
     
@@ -480,7 +514,7 @@ def handle_invoice_paid(invoice):
 
 def handle_payment_failed(invoice):
     """Handle failed payment."""
-    subscription_id = invoice.get('subscription')
+    subscription_id = _subscription_id_from_invoice(invoice)
     customer_email = invoice.get('customer_email', '')
 
     logging.warning(f"=== PAYMENT FAILED for {customer_email}, subscription {subscription_id} ===")
