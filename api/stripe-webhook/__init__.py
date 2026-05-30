@@ -91,56 +91,69 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     #     the user's next dashboard load; and
     #   • admin `?report=sync-all` bulk-reconciles everything on demand.
     # The handler booleans below are kept for observability/logging only.
-    # ------------------------------------------------------------------
-    handled = True
-    try:
-        if event_type == 'checkout.session.completed':
-            handled = handle_checkout_completed(data)
+    #
+    # HARD WALL-CLOCK CAP. Azure Static Web Apps' gateway kills a request after
+    # ~45s with an empty-body 500 that no try/except can catch — that is what
+    # produced the persistent empty 500s when a handler stalled on a slow
+    # outbound call. So we run the handler in a daemon thread and ACK within a
+    # cap WELL under that gateway limit, whether or not it finished. Anything we
+    # abandon is reconciled by the subscription-status login self-heal and the
+    # admin ?report=sync-all reconcile, so a slow handler can never again turn
+    # into a gateway 500 + retry storm.
+    HANDLER_CAP_SECONDS = 25
+    _dispatch = {
+        'checkout.session.completed': handle_checkout_completed,
+        'customer.subscription.created': handle_subscription_created,
+        'customer.subscription.updated': handle_subscription_updated,
+        'customer.subscription.deleted': handle_subscription_deleted,
+        'invoice.payment_succeeded': handle_payment_succeeded,
+        'invoice.payment_failed': handle_payment_failed,
+        'invoice.paid': handle_invoice_paid,
+    }
+    handler_fn = _dispatch.get(event_type)
+    if handler_fn is None:
+        # Unhandled event type — nothing to do, ACK immediately.
+        return func.HttpResponse(f"ack(ignored): {event_type}", status_code=200)
 
-        elif event_type == 'customer.subscription.created':
-            handled = handle_subscription_created(data)
+    import threading
+    outcome = {}
 
-        elif event_type == 'customer.subscription.updated':
-            handled = handle_subscription_updated(data)
+    def _run_handler():
+        try:
+            outcome['handled'] = handler_fn(data)
+        except Exception as e:
+            outcome['error'] = f"{type(e).__name__}: {e}"
+            logging.error(f"Error handling {event_type} ({event_id}): {e}")
+            import traceback
+            logging.error(traceback.format_exc())
 
-        elif event_type == 'customer.subscription.deleted':
-            handled = handle_subscription_deleted(data)
+    worker = threading.Thread(target=_run_handler, name=f"wh-{event_id}", daemon=True)
+    worker.start()
+    worker.join(timeout=HANDLER_CAP_SECONDS)
 
-        elif event_type == 'invoice.payment_succeeded':
-            handled = handle_payment_succeeded(data)
+    if worker.is_alive():
+        # Still running after the cap. Abandon it (daemon — it finishes or dies
+        # on worker recycle) and ACK so the gateway never times us out.
+        logging.error(
+            f"Handler for {event_type} ({event_id}) exceeded {HANDLER_CAP_SECONDS}s cap — "
+            f"ACKing 200; login self-heal / ?report=sync-all will reconcile."
+        )
+        return func.HttpResponse(f"ack(timeout-cap): {event_type}", status_code=200)
 
-        elif event_type == 'invoice.payment_failed':
-            handled = handle_payment_failed(data)
-
-        elif event_type == 'invoice.paid':
-            # Handle invoice.paid as a backup
-            handled = handle_invoice_paid(data)
-
-    except Exception as e:
-        logging.error(f"Error handling {event_type} ({event_id}): {e}")
-        import traceback
-        logging.error(traceback.format_exc())
-        # ACK anyway — see policy note above. Self-heal-on-login recovers it.
-        # DIAG: report the outcome in the body so Stripe's delivery panel shows
-        # it. If main() is host-killed mid-handler (timeout/crash), NONE of these
-        # bodies appear and Stripe shows an empty 500 — that absence is the signal.
+    if 'error' in outcome:
         return func.HttpResponse(
-            f"ack(handler-error): {event_type}: {type(e).__name__}: {e}",
-            status_code=200,
+            f"ack(handler-error): {event_type}: {outcome['error']}", status_code=200
         )
 
-    if handled is False:
+    if outcome.get('handled') is False:
         logging.error(
             f"Handler for {event_type} ({event_id}) reported failure — "
-            f"ACKing 200 anyway. Self-heal on login will reconcile; run admin "
-            f"?report=sync-all if a user reports missing access."
+            f"ACKing 200 anyway. Self-heal on login will reconcile."
         )
-        return func.HttpResponse(
-            f"ack(handler-false): {event_type}", status_code=200
-        )
+        return func.HttpResponse(f"ack(handler-false): {event_type}", status_code=200)
 
     return func.HttpResponse(
-        f"ack(ok): {event_type} handled={handled}", status_code=200
+        f"ack(ok): {event_type} handled={outcome.get('handled')}", status_code=200
     )
 
 
