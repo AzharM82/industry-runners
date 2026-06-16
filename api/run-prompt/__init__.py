@@ -574,7 +574,7 @@ If the stock ticker is not recognized or data is limited, still provide your bes
 
         # Make API call (Polygon data is passed in the prompt for context)
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=8000,
             system=system_prompt,
             messages=[

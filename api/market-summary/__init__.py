@@ -130,7 +130,7 @@ def generate_summary(prompt_text: str) -> str:
     for attempt in range(3):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+                model="claude-sonnet-4-6",
                 max_tokens=4096,
                 tools=[{
                     "type": "web_search_20250305",
