@@ -1,3 +1,4 @@
+import { todayLocal } from '../utils/dates';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 
@@ -401,7 +402,7 @@ export function PromptRunner() {
     addFooter();
 
     // Download
-    const filename = `${result.ticker}_${result.prompt_type}_${new Date().toISOString().split('T')[0]}.pdf`;
+    const filename = `${result.ticker}_${result.prompt_type}_${todayLocal()}.pdf`;
     doc.save(filename);
   };
 

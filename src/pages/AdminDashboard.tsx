@@ -1,3 +1,4 @@
+import { todayLocal, toLocalDateStr, parseLocalDate } from '../utils/dates';
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -90,7 +91,7 @@ export function AdminDashboard() {
   const [report, setReport] = useState<DailyReport | null>(null);
   const [users, setUsers] = useState<UserStats[]>([]);
   const [selectedDate, setSelectedDate] = useState(() => {
-    return new Date().toISOString().split('T')[0];
+    return todayLocal();
   });
   const [activeTab, setActiveTab] = useState<'daily' | 'users' | 'tools' | 'emails' | 'messaging'>('daily');
 
@@ -186,10 +187,10 @@ export function AdminDashboard() {
   const [emailsLoading, setEmailsLoading] = useState(false);
 
   // Data Tools state
-  const [sectorFixDate, setSectorFixDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [breadthFixDate, setBreadthFixDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [realtimeBreadthFixDate, setRealtimeBreadthFixDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [technicalBreadthFixDate, setTechnicalBreadthFixDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [sectorFixDate, setSectorFixDate] = useState(() => todayLocal());
+  const [breadthFixDate, setBreadthFixDate] = useState(() => todayLocal());
+  const [realtimeBreadthFixDate, setRealtimeBreadthFixDate] = useState(() => todayLocal());
+  const [technicalBreadthFixDate, setTechnicalBreadthFixDate] = useState(() => todayLocal());
   const [toolResults, setToolResults] = useState<Record<string, { status: 'idle' | 'loading' | 'success' | 'error'; message?: string }>>({});
   const [subDebugEmail, setSubDebugEmail] = useState('');
   const [subDebugResult, setSubDebugResult] = useState<unknown>(null);
@@ -371,13 +372,13 @@ export function AdminDashboard() {
   };
 
   const changeDate = (days: number) => {
-    const date = new Date(selectedDate);
+    const date = parseLocalDate(selectedDate);
     date.setDate(date.getDate() + days);
-    setSelectedDate(date.toISOString().split('T')[0]);
+    setSelectedDate(toLocalDateStr(date));
   };
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('en-US', {
+    return parseLocalDate(dateStr).toLocaleDateString('en-US', {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -552,7 +553,7 @@ export function AdminDashboard() {
               </div>
               <button
                 onClick={() => changeDate(1)}
-                disabled={selectedDate >= new Date().toISOString().split('T')[0]}
+                disabled={selectedDate >= todayLocal()}
                 className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <ChevronRight className="w-5 h-5" />

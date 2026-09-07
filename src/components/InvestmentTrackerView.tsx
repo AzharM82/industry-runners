@@ -1,3 +1,4 @@
+import { todayLocal } from '../utils/dates';
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { TrendingUp, Plus, Trash2, DollarSign, Calendar, RefreshCw, ChevronDown, ChevronRight, BookOpen, Target, CheckCircle, AlertTriangle, Clock, BarChart3, Lock, Loader2, Cloud } from 'lucide-react';
 
@@ -107,7 +108,7 @@ export function InvestmentTrackerView() {
   const [buyForm, setBuyForm] = useState({
     shares: '',
     pricePerShare: '',
-    date: new Date().toISOString().split('T')[0]
+    date: todayLocal()
   });
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<InvestmentTab>('system');
@@ -295,7 +296,7 @@ export function InvestmentTrackerView() {
       currentPrice: parseFloat(newStock.currentPrice) || price,
       monthlyBuys: [{
         month: firstMonth,
-        date: new Date().toISOString().split('T')[0],
+        date: todayLocal(),
         shares,
         pricePerShare: price,
         amount: shares * price,
@@ -334,7 +335,7 @@ export function InvestmentTrackerView() {
     ));
 
     setShowBuyModal(null);
-    setBuyForm({ shares: '', pricePerShare: '', date: new Date().toISOString().split('T')[0] });
+    setBuyForm({ shares: '', pricePerShare: '', date: todayLocal() });
   };
 
   
@@ -912,7 +913,7 @@ export function InvestmentTrackerView() {
                                   setBuyForm({
                                     shares: '',
                                     pricePerShare: String(stock.currentPrice),
-                                    date: new Date().toISOString().split('T')[0]
+                                    date: todayLocal()
                                   });
                                 }
                               }}
