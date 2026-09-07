@@ -13,7 +13,6 @@ import os
 import smtplib
 import sys
 import traceback
-from datetime import date as date_cls
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -28,6 +27,8 @@ from shared.database import (
     mark_broadcast_failed,
     mark_broadcast_sent,
 )
+from shared.email_utils import make_unsubscribe_url
+from shared.timezone import today_pst
 
 
 GMAIL_USER = os.environ.get('GMAIL_USER', '')
@@ -52,6 +53,8 @@ def _send(to_email: str, subject: str, body_html: str, body_text: str) -> tuple[
         msg['From'] = f'StockPro AI <{GMAIL_USER}>'
         msg['To'] = to_email
         msg['Subject'] = subject
+        # One-click unsubscribe header (same HMAC token as api/unsubscribe).
+        msg['List-Unsubscribe'] = f'<{make_unsubscribe_url(to_email)}>'
         msg.attach(MIMEText(body_text, 'plain'))
         msg.attach(MIMEText(body_html, 'html'))
         with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as server:
@@ -81,21 +84,24 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         sent = 0
         failed = 0
-        today = date_cls.today().isoformat()
+        # Market-day date in PST (the drain runs ~9 PM ET, which is already
+        # the next day in UTC — date.today() would mis-stamp the recap).
+        today = today_pst()
         for row in rows:
+            kind = row.get('kind') or 'broadcast'
             ok, err = _send(row['email'], row['subject'], row['body_html'], row['body_text'])
             if ok:
                 mark_broadcast_sent(str(row['id']))
                 sent += 1
                 try:
-                    log_email_send(row['email'], today, 'sent', None, kind='broadcast')
+                    log_email_send(row['email'], today, 'sent', None, kind=kind)
                 except Exception:
                     logging.exception('telemetry log failed (sent)')
             else:
                 mark_broadcast_failed(str(row['id']), err or 'unknown')
                 failed += 1
                 try:
-                    log_email_send(row['email'], today, 'failed', err, kind='broadcast')
+                    log_email_send(row['email'], today, 'failed', err, kind=kind)
                 except Exception:
                     logging.exception('telemetry log failed (failed)')
 

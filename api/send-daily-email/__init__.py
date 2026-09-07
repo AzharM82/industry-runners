@@ -1,42 +1,41 @@
 """
-Daily Recap Email — sends a comprehensive market recap to all opted-in paid subscribers.
+Daily Recap Email — builds a comprehensive market recap for every opted-in paid
+subscriber and ENQUEUES it into broadcast_queue. The stockproai-cron drain
+(api/broadcast-drain, every 30 s) does the actual SMTP sends.
+
+Why enqueue instead of sending inline: sending N emails over Gmail SMTP inside
+one HTTP request took longer than the SWA managed-functions gateway allows
+(~45 s), so every nightly run 500'd with "Backend call failure" and nobody got
+the recap. Enqueueing is a single bulk INSERT and returns in a few seconds.
+
 Triggered by GitHub Actions cron at ~8 PM ET on market days.
 Authenticated by DAILY_EMAIL_KEY query parameter.
+  ?test=<email>  -> build for that one address only, bypass the market-day check
 """
 
 import json
 import os
 import re
 import logging
-import smtplib
-import hmac
-import hashlib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import uuid
 from datetime import datetime
 
 import azure.functions as func
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from shared.database import get_market_summaries, get_paid_subscribers_for_email, init_schema, log_email_send
+from shared.database import (
+    get_market_summaries,
+    get_paid_subscribers_for_email,
+    init_schema,
+    enqueue_broadcast_rows,
+)
 from shared.cache import get_cached, get_history
 from shared.market_calendar import is_market_open
 from shared.timezone import today_pst
+from shared.email_utils import make_unsubscribe_url, BASE_URL
 
 DAILY_EMAIL_KEY = os.environ.get('DAILY_EMAIL_KEY', '')
-GMAIL_USER = os.environ.get('GMAIL_USER', '')
-GMAIL_APP_PASSWORD = os.environ.get('GMAIL_APP_PASSWORD', '')
-BASE_URL = 'https://www.stockproai.net'
-
-
-def make_unsubscribe_token(email: str) -> str:
-    """Generate HMAC-signed unsubscribe token for an email."""
-    return hmac.new(
-        DAILY_EMAIL_KEY.encode(),
-        email.lower().encode(),
-        hashlib.sha256
-    ).hexdigest()[:32]
 
 
 def color_for_value(val, threshold=0):
@@ -584,24 +583,15 @@ def build_email_html(date_str, summary_text, breadth_rt, breadth_daily,
 </html>'''
 
 
-def send_email(to_email: str, subject: str, html_body: str) -> bool:
-    """Send an HTML email via Gmail SMTP."""
-    msg = MIMEMultipart('alternative')
-    msg['From'] = f'StockPro AI <{GMAIL_USER}>'
-    msg['To'] = to_email
-    msg['Subject'] = subject
-    msg['List-Unsubscribe'] = f'<{BASE_URL}/api/unsubscribe?email={to_email}&token={make_unsubscribe_token(to_email)}>'
-
-    msg.attach(MIMEText(html_body, 'html'))
-
-    try:
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as server:
-            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-            server.sendmail(GMAIL_USER, to_email, msg.as_string())
-        return True
-    except Exception as e:
-        logging.error(f"Failed to send email to {to_email}: {e}")
-        return False
+def build_plain_text(date_str: str, summary_text, unsubscribe_url: str) -> str:
+    """Plain-text alternative for mail clients that don't render HTML."""
+    body = summary_text or 'Your daily market recap is ready.'
+    return (
+        f"StockPro AI Daily Recap - {date_str}\n\n"
+        f"{body}\n\n"
+        f"View the full dashboard: {BASE_URL}/dashboard\n"
+        f"Unsubscribe: {unsubscribe_url}\n"
+    )
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
@@ -612,14 +602,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             return func.HttpResponse(
                 json.dumps({'error': 'Unauthorized'}),
                 status_code=401,
-                mimetype='application/json'
-            )
-
-        # Validate SMTP config
-        if not GMAIL_USER or not GMAIL_APP_PASSWORD:
-            return func.HttpResponse(
-                json.dumps({'error': 'GMAIL_USER or GMAIL_APP_PASSWORD not configured'}),
-                status_code=500,
                 mimetype='application/json'
             )
 
@@ -682,54 +664,47 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         date_display = datetime.strptime(today, '%Y-%m-%d').strftime('%B %d, %Y')
         subject = f'StockPro AI Daily Recap — {date_display}'
 
-        # Send emails
-        sent = 0
+        # Build one personalised body per recipient (unsubscribe link differs)
+        # and enqueue them all in one bulk INSERT. The drain sends them.
+        rows = []
         errors = 0
         error_list = []
-
         for sub in subscribers:
             email = sub['email']
             try:
-                unsub_url = f'{BASE_URL}/api/unsubscribe?email={email}&token={make_unsubscribe_token(email)}'
+                unsub_url = make_unsubscribe_url(email)
                 html = build_email_html(
                     date_display, summary_text,
                     breadth_rt, breadth_daily,
                     sector_data, rt_history, daily_history,
                     daytrade_data, unsub_url
                 )
-                if send_email(email, subject, html):
-                    sent += 1
-                    logging.info(f"Sent email to {email}")
-                    try:
-                        log_email_send(email, today, 'sent')
-                    except Exception as log_err:
-                        logging.warning(f"Failed to log email send for {email}: {log_err}")
-                else:
-                    errors += 1
-                    error_list.append(email)
-                    try:
-                        log_email_send(email, today, 'failed', 'SMTP send returned False')
-                    except Exception as log_err:
-                        logging.warning(f"Failed to log email failure for {email}: {log_err}")
+                rows.append((email, html, build_plain_text(date_display, summary_text, unsub_url)))
             except Exception as e:
                 errors += 1
                 error_list.append(email)
-                logging.error(f"Error sending to {email}: {e}")
-                try:
-                    log_email_send(email, today, 'failed', str(e))
-                except Exception as log_err:
-                    logging.warning(f"Failed to log email error for {email}: {log_err}")
+                logging.error(f"Error building recap for {email}: {e}")
+
+        broadcast_id = str(uuid.uuid4())
+        enqueued = enqueue_broadcast_rows(
+            broadcast_id, rows, subject,
+            triggered_by='daily-recap-test' if test_email else 'daily-recap-cron',
+            is_test=bool(test_email),
+            kind='daily',
+        )
 
         result = {
-            'sent': sent,
+            'enqueued': enqueued,
             'total': total,
             'errors': errors,
-            'date': today
+            'date': today,
+            'broadcast_id': broadcast_id,
+            'note': 'Rows queued in broadcast_queue; stockproai-cron drain sends them within ~30s',
         }
         if error_list:
             result['failed_emails'] = error_list
 
-        logging.info(f"Daily email complete: {sent}/{total} sent, {errors} errors")
+        logging.info(f"Daily recap enqueued: {enqueued}/{total} rows, {errors} build errors, broadcast {broadcast_id}")
         return func.HttpResponse(
             json.dumps(result),
             mimetype='application/json'

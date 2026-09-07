@@ -79,9 +79,9 @@ industry-runners/
 │   ├── subscription-status/ # Auth + sub check + self-heal-from-Stripe + admin ?report= reconcile
 │   ├── cancel-subscription/ # Self-serve cancel (Stripe cancel_at_period_end=true)
 │   ├── # --- Email pipeline ---
-│   ├── send-daily-email/   # Daily recap email cron (paid subscribers)
+│   ├── send-daily-email/   # Daily recap: builds per-recipient HTML, ENQUEUES into broadcast_queue (kind='daily'); drain sends
 │   ├── broadcast-send/     # Admin broadcast: enqueue rows into broadcast_queue
-│   ├── broadcast-drain/    # External stockproai-cron drains queue every 30s via Gmail SMTP
+│   ├── broadcast-drain/    # External stockproai-cron drains queue every 30s via Gmail SMTP (daily recap + broadcasts)
 │   ├── unsubscribe/        # Email opt-out handler
 │   ├── # --- Users / auth ---
 │   ├── track-login/        # Login analytics
@@ -103,7 +103,7 @@ industry-runners/
 │   ├── test-webhook-sync/  # Webhook sync test harness
 │   ├── health-check/       # System health
 │   ├── ping/               # Liveness / cache-bypass diagnostics
-│   └── shared/             # Shared Python utilities (database.py, stripe_helpers.py, admin.py)
+│   └── shared/             # Shared Python utilities (database.py, stripe_helpers.py, admin.py, email_utils.py)
 ├── staticwebapp.config.json # Azure SWA routing, auth providers, CORS
 ├── vite.config.ts          # Vite build config
 ├── index.html              # HTML entry point
@@ -131,6 +131,13 @@ $6.99/mo via Stripe. Local tables: `users` (keyed by lowercased `email`, `stripe
   - `?report=double-bills` — emails with >1 active Stripe sub ("Find Double-Billed Users" button).
   - `?sync=<email>` — per-user force-sync.
   - Admin/diag-gated; unauthenticated diag access via `x-diag-key`/`?diag_key=` = `DAILY_EMAIL_KEY` for read reports.
+
+## Email pipeline (daily recap + admin broadcasts)
+- **Never send SMTP inline from an HTTP function.** The SWA managed-functions gateway kills requests at ~45 s ("Backend call failure", HTTP 500). The daily recap used to loop over subscribers sending via Gmail SMTP in one request and failed every night from late July to mid-Aug 2026 — nobody got the email.
+- **Pattern:** the HTTP function builds the bodies and does ONE bulk INSERT into `broadcast_queue` (`enqueue_broadcast_rows`, `kind='daily'|'broadcast'`), returns immediately. The separate `stockproai-cron` Function App (`dev/industry-runners-cron/`, timer every 30 s) POSTs `/api/broadcast-drain?key=$DAILY_EMAIL_KEY`, which claims a batch (`FOR UPDATE SKIP LOCKED`), sends via SMTP, marks rows sent/failed, and logs `email_log` with the row's `kind` and the PST market date.
+- Unsubscribe token/URL live in `shared/email_utils.py` (same HMAC as `api/unsubscribe`); the drain adds a `List-Unsubscribe` header to every send.
+- Test the recap: `POST /api/send-daily-email?key=$DAILY_EMAIL_KEY&test=<email>` → 1 row with `is_test=true`, delivered by the drain within ~30 s. Check `subscription-status?report=broadcast-stats`.
+- **GitHub scheduled workflows auto-disable after 60 days without a commit** (`disabled_inactivity`). All three crons (breadth snapshot, market summary, daily email) died 2026-08-18 that way. Check `gh workflow list --all`; re-enable with `gh workflow enable <id>` or push any commit.
 
 ## Auth notes
 - **Microsoft = personal accounts only.** Uses a `customOpenIdConnectProviders.microsoft` provider on `https://login.microsoftonline.com/consumers/v2.0/...` (NOT the built-in `azureActiveDirectory`/`/common` provider, which rejected personal-account tokens on issuer validation). `/login/microsoft` → `/.auth/login/microsoft`. App registration `StockProAI-Microsoft-Auth` (client `66f99dae-…`) must keep redirect URIs `https://www.stockproai.net/.auth/login/microsoft/callback` and the orange-forest backup host.

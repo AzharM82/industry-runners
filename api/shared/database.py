@@ -134,10 +134,14 @@ def init_schema():
         enqueued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         sent_at TIMESTAMPTZ,
         is_test BOOLEAN NOT NULL DEFAULT FALSE,
-        triggered_by VARCHAR(255)
+        triggered_by VARCHAR(255),
+        kind VARCHAR(20) NOT NULL DEFAULT 'broadcast'
     );
     CREATE INDEX IF NOT EXISTS idx_broadcast_queue_pending
         ON broadcast_queue(status, enqueued_at) WHERE status = 'pending';
+    -- `kind` distinguishes 'daily' recap rows from admin 'broadcast' rows so the
+    -- drain logs the right telemetry kind. Idempotent migration for existing DBs.
+    ALTER TABLE broadcast_queue ADD COLUMN IF NOT EXISTS kind VARCHAR(20) NOT NULL DEFAULT 'broadcast';
 
     -- Investment stocks table (long-term portfolio)
     CREATE TABLE IF NOT EXISTS investment_stocks (
@@ -1173,27 +1177,44 @@ def get_broadcast_recipient_emails():
 
 def enqueue_broadcast(broadcast_id: str, recipients: list[str], subject: str,
                       body_html: str, body_text: str, triggered_by: str,
-                      is_test: bool = False):
-    """Insert one row per recipient into broadcast_queue."""
+                      is_test: bool = False, kind: str = 'broadcast'):
+    """Insert one row per recipient into broadcast_queue (same body for all)."""
     if not recipients:
+        return 0
+    return enqueue_broadcast_rows(
+        broadcast_id,
+        [(email, body_html, body_text) for email in recipients],
+        subject, triggered_by, is_test, kind,
+    )
+
+
+def enqueue_broadcast_rows(broadcast_id: str, rows: list[tuple], subject: str,
+                           triggered_by: str, is_test: bool = False,
+                           kind: str = 'broadcast'):
+    """Insert one queue row per (email, body_html, body_text) tuple.
+
+    Used when each recipient gets a personalised body (e.g. the daily recap
+    embeds a per-recipient unsubscribe link).
+    """
+    if not rows:
         return 0
     conn = get_connection()
     cur = conn.cursor()
-    rows = [
-        (broadcast_id, email.lower().strip(), subject, body_html, body_text, triggered_by, is_test)
-        for email in recipients
+    values = [
+        (broadcast_id, email.lower().strip(), subject, body_html, body_text, triggered_by, is_test, kind)
+        for (email, body_html, body_text) in rows
     ]
     # executemany via mogrify is faster than per-row inserts for large lists.
     args_str = ','.join(
-        cur.mogrify('(%s, %s, %s, %s, %s, %s, %s)', r).decode('utf-8') for r in rows
+        cur.mogrify('(%s, %s, %s, %s, %s, %s, %s, %s)', r).decode('utf-8') for r in values
     )
     cur.execute(
-        f"INSERT INTO broadcast_queue (broadcast_id, email, subject, body_html, body_text, triggered_by, is_test) VALUES {args_str}"
+        f"INSERT INTO broadcast_queue (broadcast_id, email, subject, body_html, body_text, triggered_by, is_test, kind) VALUES {args_str}"
     )
     conn.commit()
     cur.close()
     conn.close()
-    return len(rows)
+    return len(values)
 
 
 def claim_broadcast_batch(batch_size: int = 50):
@@ -1216,7 +1237,7 @@ def claim_broadcast_batch(batch_size: int = 50):
         SET status = 'sending', attempts = bq.attempts + 1
         FROM next
         WHERE bq.id = next.id
-        RETURNING bq.id, bq.email, bq.subject, bq.body_html, bq.body_text, bq.is_test, bq.broadcast_id
+        RETURNING bq.id, bq.email, bq.subject, bq.body_html, bq.body_text, bq.is_test, bq.broadcast_id, bq.kind
     """)
     rows = [dict(r) for r in cur.fetchall()]
     conn.commit()
